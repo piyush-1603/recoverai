@@ -1,0 +1,53 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  // Connection URL is configured in prisma.config.ts (Prisma 7 requirement)
+}
+
+model Transaction {
+  id                          String    @id @default(cuid())
+  externalPaymentId           String?   @unique
+  amountPaise                 Int
+  status                      String    // failed | recovered | unrecoverable | pending
+  reasonCode                  String
+  source                      String    // customer | business | gateway | razorpay
+  type                        String    // payment | subscription | checkout_abandon
+  customerId                  String
+  retryCount                  Int       @default(0)
+  nudgeCount                  Int       @default(0)
+  createdAt                   DateTime  @default(now())
+  resolvedAt                  DateTime?
+  recovered                   Boolean   @default(false)
+  expectedRecoveryOutcome     String    // 'recovers_on_retry' | 'recovers_on_nudge' | 'requires_approval_then_recovers' | 'never_recovers'
+  simulatedRecoveryAmountPaise Int?     // null if never_recovers
+
+  auditLogs AuditLog[]
+}
+
+model AuditLog {
+  id            String      @id @default(cuid())
+  transactionId String
+  eventId       String      @unique // idempotency key
+  actor         String      // 'claude_agent' | 'policy_engine' | 'action_executor' | 'system'
+  action        String
+  reason        String
+  result        String
+  timestamp     DateTime    @default(now())
+
+  transaction   Transaction @relation(fields: [transactionId], references: [id])
+}
+
+model PolicyConfig {
+  id                    String @id @default(cuid())
+  afaThresholdPaise     Int    @default(1500000) // ₹15,000 — merchant-configurable, NOT a hardcoded absolute regulatory fact
+  maxRetries            Int    @default(1)
+  maxNudges             Int    @default(2)
+  nudgeWindowStartHour  Int    @default(10)
+  nudgeWindowEndHour    Int    @default(21)
+}

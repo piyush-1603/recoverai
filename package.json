@@ -5,17 +5,37 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "db:push": "prisma db push",
+    "db:generate": "prisma generate",
+    "db:studio": "prisma studio",
+    "seed": "npx tsx --tsconfig tsconfig.scripts.json data/seed-transactions.ts",
+    "policy-check": "npx tsx --tsconfig tsconfig.scripts.json scripts/run-policy-check.ts",
+    "test:off-window": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-off-window.ts",
+    "test:retry-exhaustion": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-retry-exhaustion.ts",
+    "test:idempotency": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-webhook-idempotency.ts",
+    "test:e2e": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-end-to-end-trace.ts",
+    "test:razorpay": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-razorpay-call.ts",
+    "checkout:live": "npx tsx --tsconfig tsconfig.scripts.json scripts/create-live-checkout.ts"
   },
   "dependencies": {
+    "@prisma/adapter-better-sqlite3": "^7.10.0",
+    "@prisma/client": "^7.10.0",
+    "better-sqlite3": "^13.0.3",
+    "dotenv": "^17.4.2",
     "next": "16.3.3",
+    "razorpay": "^2.9.8",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
   "devDependencies": {
-    "@types/node": "^20",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^20.19.43",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "prisma": "^7.10.0",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.23.12",
     "typescript": "^5"
   }
 }
