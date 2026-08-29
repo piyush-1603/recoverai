@@ -17,6 +17,8 @@ export type TransactionInput = {
   source: string;
   retryCount: number;
   nudgeCount: number;
+  abandonedAt?: Date | string | null;
+  createdAt?: Date | string;
 };
 
 export type PolicyConfigInput = {
@@ -58,6 +60,7 @@ export function diagnoseAndDecide(
   transaction: TransactionInput,
   policyConfig: PolicyConfigInput,
   currentHour: number,
+  now?: Date,
 ): PolicyDecision {
   // Rule 1: Already resolved
   if (transaction.status === 'recovered') {
@@ -176,7 +179,69 @@ export function diagnoseAndDecide(
     };
   }
 
-  // Rule 8: Default fallback
+  // Rule 8: Cart / Checkout Abandonment Lifecycle
+  if (transaction.type === 'checkout_abandon') {
+    const nowTime = now ? now.getTime() : Date.now();
+    const abandonTime = transaction.abandonedAt
+      ? new Date(transaction.abandonedAt).getTime()
+      : (transaction.createdAt ? new Date(transaction.createdAt).getTime() : nowTime);
+    const hoursSinceAbandonment = Math.max(0, (nowTime - abandonTime) / (1000 * 60 * 60));
+
+    // Case 1: < 1 hour -> too soon, avoid premature nudge
+    if (hoursSinceAbandonment < 1) {
+      return {
+        action: 'no_action',
+        requiresApproval: false,
+        blockedByCompliance: false,
+        reason: 'too soon, avoiding premature nudge',
+      };
+    }
+
+    // Case 2: between 1 and 24 hours -> evaluate nudge window & count
+    if (hoursSinceAbandonment >= 1 && hoursSinceAbandonment <= 24) {
+      if (transaction.nudgeCount >= policyConfig.maxNudges) {
+        return {
+          action: 'stop_unrecoverable',
+          requiresApproval: false,
+          blockedByCompliance: false,
+          reason: 'abandonment recovery window expired',
+        };
+      }
+
+      const inWindow =
+        currentHour >= policyConfig.nudgeWindowStartHour &&
+        currentHour < policyConfig.nudgeWindowEndHour;
+
+      if (inWindow) {
+        return {
+          action: 'send_nudge',
+          requiresApproval: false,
+          blockedByCompliance: false,
+          reason: 'cart abandonment recovery nudge, within compliant window',
+        };
+      } else {
+        return {
+          action: 'no_action',
+          requiresApproval: false,
+          blockedByCompliance: true,
+          reason:
+            'outside compliant nudge window (TRAI SMS timing rules), deferred to next window',
+        };
+      }
+    }
+
+    // Case 3: > 24 hours with no recovery -> stop_unrecoverable
+    if (hoursSinceAbandonment > 24) {
+      return {
+        action: 'stop_unrecoverable',
+        requiresApproval: false,
+        blockedByCompliance: false,
+        reason: 'abandonment recovery window expired',
+      };
+    }
+  }
+
+  // Rule 9: Default fallback
   return {
     action: 'no_action',
     requiresApproval: false,

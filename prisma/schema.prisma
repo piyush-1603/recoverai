@@ -15,13 +15,14 @@ model Transaction {
   externalPaymentId           String?   @unique
   amountPaise                 Int
   status                      String    // failed | recovered | unrecoverable | pending
-  reasonCode                  String
-  source                      String    // customer | business | gateway | razorpay
+  reasonCode                  String    @default("")
+  source                      String    @default("customer") // customer | business | gateway | razorpay
   type                        String    // payment | subscription | checkout_abandon
   customerId                  String
   retryCount                  Int       @default(0)
   nudgeCount                  Int       @default(0)
   createdAt                   DateTime  @default(now())
+  abandonedAt                 DateTime? // timestamp for checkout_abandon carts
   resolvedAt                  DateTime?
   recovered                   Boolean   @default(false)
   expectedRecoveryOutcome     String    // 'recovers_on_retry' | 'recovers_on_nudge' | 'requires_approval_then_recovers' | 'never_recovers'

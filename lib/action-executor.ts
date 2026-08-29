@@ -132,6 +132,7 @@ function simulateOutcome(
 export async function executeAction(
   decision: PolicyDecision,
   transaction: Transaction,
+  executionMode: 'live' | 'simulate' = 'live',
 ): Promise<ExecutionResult> {
   const { action } = decision;
 
@@ -143,7 +144,7 @@ export async function executeAction(
   let razorpayDetails: any = undefined;
 
   // 1. Live Razorpay API Execution for auto_retry
-  if (action === 'auto_retry' && hasValidRazorpayKeys()) {
+  if (action === 'auto_retry' && executionMode === 'live' && hasValidRazorpayKeys()) {
     try {
       const link = await createPaymentLink(
         transaction.amountPaise,
