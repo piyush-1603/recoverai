@@ -106,7 +106,7 @@ async function runDemo() {
       tx.id,
       'action_executor',
       decision.action,
-      decision.reason,
+      result.note || decision.reason,
       result.outcome,
     );
 

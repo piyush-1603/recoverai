@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
       targetTx.id,
       'action_executor',
       decision.action,
-      decision.reason,
+      result.note || decision.reason,
       result.outcome,
     );
 

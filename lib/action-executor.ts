@@ -40,6 +40,20 @@ export type ExecutionResult = {
   };
 };
 
+function composeNudgeMessage(transaction: Transaction): string {
+  const amountStr = `₹${(transaction.amountPaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+  if (transaction.type === 'checkout_abandon') {
+    return `SMS to +919876543210: "Hi! You left ${amountStr} in your cart. Complete your purchase here: https://pay.example.com/cart/${transaction.id.slice(-6)}"`;
+  }
+  if (transaction.reasonCode === 'insufficient_funds') {
+    return `SMS to +919876543210: "Your payment of ${amountStr} failed due to low balance. Retry with UPI/card: https://pay.example.com/retry/${transaction.id.slice(-6)}"`;
+  }
+  if (['card_declined', 'authentication_failed', 'card_expired'].includes(transaction.reasonCode)) {
+    return `SMS to +919876543210: "Your card payment of ${amountStr} was declined. Update your payment method: https://pay.example.com/update/${transaction.id.slice(-6)}"`;
+  }
+  return `SMS to +919876543210: "Payment reminder: Complete your ${amountStr} payment here: https://pay.example.com/pay/${transaction.id.slice(-6)}"`;
+}
+
 /**
  * Simulate non-auto_retry actions or fallback when Razorpay credentials are not provided.
  */
@@ -90,13 +104,14 @@ function simulateOutcome(
         (expectedRecoveryOutcome === 'recovers_on_nudge' ||
           expectedRecoveryOutcome === 'requires_approval_then_recovers') &&
         simulatedRecoveryAmountPaise !== null;
+      const smsText = composeNudgeMessage(transaction);
       return {
         recovered: succeeded,
         recoveredAmountPaise: succeeded ? simulatedRecoveryAmountPaise : null,
         outcome: succeeded ? 'nudge_led_to_recovery' : 'nudge_sent_no_recovery',
         note: succeeded
-          ? `Simulated nudge sent; customer responded, recovered ₹${(simulatedRecoveryAmountPaise! / 100).toFixed(2)}.`
-          : 'Simulated nudge sent; customer did not respond or payment still failed.',
+          ? `${smsText} [Customer clicked link & recovered ₹${(simulatedRecoveryAmountPaise! / 100).toFixed(2)}]`
+          : `${smsText} [Awaiting customer response / payment still pending]`,
       };
     }
 
@@ -104,13 +119,15 @@ function simulateOutcome(
       const succeeded =
         expectedRecoveryOutcome === 'requires_approval_then_recovers' &&
         simulatedRecoveryAmountPaise !== null;
+      const amountStr = `₹${(transaction.amountPaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+      const smsText = `SMS to +919876543210: "Action Required: Approve recurring subscription of ${amountStr} per RBI e-mandate guidelines: https://pay.example.com/approve/${transaction.id.slice(-6)}"`;
       return {
         recovered: succeeded,
         recoveredAmountPaise: succeeded ? simulatedRecoveryAmountPaise : null,
         outcome: succeeded ? 'approval_granted_recovered' : 'approval_pending',
         note: succeeded
-          ? `Simulated approval request sent; customer authenticated, recovered ₹${(simulatedRecoveryAmountPaise! / 100).toFixed(2)}.`
-          : 'Simulated approval request sent; awaiting customer authentication.',
+          ? `${smsText} [Customer authenticated approval & recovered ₹${(simulatedRecoveryAmountPaise! / 100).toFixed(2)}]`
+          : `${smsText} [Awaiting customer 2FA authentication]`,
       };
     }
 
