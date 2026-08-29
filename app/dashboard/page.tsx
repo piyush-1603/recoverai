@@ -61,6 +61,9 @@ export default function DashboardPage() {
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [filterText, setFilterText] = useState('');
 
+  const [triggering, setTriggering] = useState(false);
+  const [triggerNotification, setTriggerNotification] = useState<string | null>(null);
+
   const fetchData = async () => {
     try {
       const res = await fetch('/api/audit');
@@ -75,6 +78,31 @@ export default function DashboardPage() {
       console.error('Failed to poll /api/audit:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleTriggerDemo = async () => {
+    setTriggering(true);
+    setTriggerNotification(null);
+    try {
+      const res = await fetch('/api/demo-trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const actionLabel = data.decision?.action?.toUpperCase() || 'EVENT';
+        const linkUrl = data.result?.razorpayDetails?.shortUrl;
+        setTriggerNotification(
+          `⚡ Live Event Triggered: ${actionLabel} on #${data.transactionId?.slice(-8)} — "${data.decision?.reason}"` +
+            (linkUrl ? ` • Razorpay Link Created: ${linkUrl}` : ''),
+        );
+        await fetchData();
+      }
+    } catch (err) {
+      console.error('Trigger error:', err);
+    } finally {
+      setTriggering(false);
     }
   };
 
@@ -127,7 +155,7 @@ export default function DashboardPage() {
   return (
     <div style={{ minHeight: '100vh', background: '#090d16', color: '#f8fafc', fontFamily: 'system-ui, -apple-system, sans-serif', padding: '24px 32px' }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px', borderBottom: '1px solid #1e293b', paddingBottom: '20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid #1e293b', paddingBottom: '20px' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span style={{ fontSize: '24px' }}>⚡</span>
@@ -143,11 +171,12 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#94a3b8' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#94a3b8', marginRight: '8px' }}>
             <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 8px #22c55e' }}></span>
             <span>Live Polling (3s)</span>
           </div>
+
           <button
             onClick={fetchData}
             style={{
@@ -166,8 +195,70 @@ export default function DashboardPage() {
           >
             ↻ Refresh
           </button>
+
+          {/* Trigger Live Demo Event Button */}
+          <button
+            id="trigger-live-demo-btn"
+            onClick={handleTriggerDemo}
+            disabled={triggering}
+            style={{
+              background: triggering
+                ? '#4338ca'
+                : 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+              color: '#ffffff',
+              border: '1px solid #6366f1',
+              padding: '8px 16px',
+              borderRadius: '6px',
+              fontSize: '13px',
+              fontWeight: '600',
+              cursor: triggering ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 2px 10px rgba(99, 102, 241, 0.35)',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <span>⚡</span>
+            <span>{triggering ? 'Triggering Event...' : 'Trigger Live Demo Event'}</span>
+          </button>
         </div>
       </div>
+
+      {/* Live Notification Banner */}
+      {triggerNotification && (
+        <div
+          style={{
+            background: 'rgba(79, 70, 229, 0.15)',
+            border: '1px solid rgba(99, 102, 241, 0.4)',
+            borderRadius: '8px',
+            padding: '12px 16px',
+            marginBottom: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            fontSize: '13px',
+            color: '#c7d2fe',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '16px' }}>🚀</span>
+            <span>{triggerNotification}</span>
+          </div>
+          <button
+            onClick={() => setTriggerNotification(null)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: '#a5b4fc',
+              cursor: 'pointer',
+              fontSize: '14px',
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* KPI Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '32px' }}>

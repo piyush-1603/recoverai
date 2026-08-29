@@ -17,7 +17,8 @@
     "test:e2e": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-end-to-end-trace.ts",
     "test:razorpay": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-razorpay-call.ts",
     "checkout:live": "npx tsx --tsconfig tsconfig.scripts.json scripts/create-live-checkout.ts",
-    "demo": "npx tsx --tsconfig tsconfig.scripts.json scripts/run-demo.ts"
+    "demo": "npx tsx --tsconfig tsconfig.scripts.json scripts/run-demo.ts",
+    "test:abandonment": "npx tsx --tsconfig tsconfig.scripts.json scripts/debug-abandonment.ts"
   },
   "dependencies": {
     "@prisma/adapter-better-sqlite3": "^7.10.0",
