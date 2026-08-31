@@ -12,6 +12,7 @@
 import 'dotenv/config';
 import { prisma } from '../lib/prisma';
 import { diagnoseAndDecide, PolicyDecision } from '../lib/policy-engine';
+import { executeAction } from '../lib/action-executor';
 
 function hr(char = '─', len = 70): string {
   return char.repeat(len);
@@ -56,48 +57,49 @@ async function runOffWindowTest() {
     id: string;
     amount: string;
     decision: PolicyDecision;
+    execNote: string;
     passed: boolean;
   }> = [];
 
   for (const tx of transactions) {
-    const decision = diagnoseAndDecide(
-      {
-        ...tx,
-        status: 'failed',
-        retryCount: 0,
-        nudgeCount: 0,
-      },
-      policyConfig,
-      forcedHour,
-    );
+    const freshTx = {
+      ...tx,
+      status: 'failed',
+      retryCount: 0,
+      nudgeCount: 0,
+    };
+    const decision = diagnoseAndDecide(freshTx, policyConfig, forcedHour);
+    const execResult = await executeAction(decision, freshTx as any, 'simulate');
 
     const isActionNoAction = decision.action === 'no_action';
-    const isReasonCorrect = decision.reason === 'outside compliant nudge window (TRAI SMS timing rules), deferred to next window';
+    const isReasonCorrect =
+      decision.reason ===
+      'outside compliant nudge window (TRAI SMS timing rules), deferred to next window';
     const isBlocked = decision.blockedByCompliance === true;
-    const isApprovalFalse = decision.requiresApproval === false;
+    const isNoteCorrect = execResult.note.includes('[COMPLIANCE HOLD]');
 
-    const passed = isActionNoAction && isReasonCorrect && isBlocked && isApprovalFalse;
-    if (!passed) {
-      allPassed = false;
-    }
+    const passed = isActionNoAction && isReasonCorrect && isBlocked && isNoteCorrect;
+    if (!passed) allPassed = false;
 
     decisions.push({
       id: tx.externalPaymentId ?? tx.id,
       amount: `₹${(tx.amountPaise / 100).toFixed(2)}`,
       decision,
+      execNote: execResult.note,
       passed,
     });
   }
 
-  // Print raw decision objects for first 3 samples + summary table
-  console.log('  🔍 Sample Raw Decision Objects Returned by policyEngine:');
+  // Print 3 sample raw decision objects
+  console.log('  🔍 Sample Raw Decision & Audit Objects Returned:\n');
   for (let i = 0; i < Math.min(3, decisions.length); i++) {
     const d = decisions[i];
-    console.log(`\n  Sample [${i + 1}/${decisions.length}] - ${d.id} (${d.amount}):`);
+    console.log(`  Sample [${i + 1}/${decisions.length}] - ${d.id} (${d.amount}):`);
     console.log(JSON.stringify(d.decision, null, 4));
+    console.log(`    ↳ Audit Note: "${d.execNote}"\n`);
   }
 
-  console.log('\n  ' + hr('─'));
+  console.log('  ' + hr('─'));
   console.log('  ' + 'TRANSACTION_ID'.padEnd(24) + 'ACTION'.padEnd(16) + 'COMPLIANCE_BLOCKED'.padEnd(20) + 'STATUS');
   console.log('  ' + hr('─'));
 

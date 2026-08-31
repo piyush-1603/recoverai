@@ -17,6 +17,7 @@ export type TransactionInput = {
   source: string;
   retryCount: number;
   nudgeCount: number;
+  customerTier?: string; // 'vip' | 'standard' | 'trial'
   abandonedAt?: Date | string | null;
   createdAt?: Date | string;
 };
@@ -24,6 +25,9 @@ export type TransactionInput = {
 export type PolicyConfigInput = {
   afaThresholdPaise: number;
   maxRetries: number;
+  vipMaxRetries?: number;
+  standardMaxRetries?: number;
+  trialMaxRetries?: number;
   maxNudges: number;
   nudgeWindowStartHour: number;
   nudgeWindowEndHour: number;
@@ -41,6 +45,7 @@ export type PolicyDecision = {
   requiresApproval: boolean;
   blockedByCompliance: boolean;
   reason: string;
+  policyVersion: string;
 };
 
 /**
@@ -51,10 +56,11 @@ export type PolicyDecision = {
  *   2. Blocked reason codes → stop_unrecoverable
  *   3. Subscription above AFA threshold → request_approval
  *   4. Both retry and nudge limits exhausted → stop_unrecoverable
- *   5. Transient gateway/razorpay error within retry limit → auto_retry
+ *   5. Transient gateway/razorpay error within retry limit → auto_retry (tier-aware)
  *   6. Customer insufficient_funds within nudge limit → send_nudge (or defer)
  *   7. Card-related error within first nudge → send_nudge
- *   8. Default fallback → no_action
+ *   8. Cart / Checkout abandonment → time-bounded nudge / stop_unrecoverable
+ *   9. Default fallback → no_action
  */
 export function diagnoseAndDecide(
   transaction: TransactionInput,
@@ -62,6 +68,18 @@ export function diagnoseAndDecide(
   currentHour: number,
   now?: Date,
 ): PolicyDecision {
+  const policyVersion = 'v1';
+
+  // Determine tier-appropriate retry limit
+  let effectiveMaxRetries = policyConfig.maxRetries ?? 1;
+  if (transaction.customerTier === 'vip') {
+    effectiveMaxRetries = policyConfig.vipMaxRetries ?? 3;
+  } else if (transaction.customerTier === 'trial') {
+    effectiveMaxRetries = policyConfig.trialMaxRetries ?? 1;
+  } else if (transaction.customerTier === 'standard') {
+    effectiveMaxRetries = policyConfig.standardMaxRetries ?? 1;
+  }
+
   // Rule 1: Already resolved
   if (transaction.status === 'recovered') {
     return {
@@ -69,6 +87,7 @@ export function diagnoseAndDecide(
       requiresApproval: false,
       blockedByCompliance: false,
       reason: 'already resolved',
+      policyVersion,
     };
   }
 
@@ -83,6 +102,7 @@ export function diagnoseAndDecide(
       requiresApproval: false,
       blockedByCompliance: true,
       reason: 'flagged reason code, not retryable by policy',
+      policyVersion,
     };
   }
 
@@ -99,14 +119,15 @@ export function diagnoseAndDecide(
         `merchant policy threshold requires customer authentication above ₹` +
         `${policyConfig.afaThresholdPaise / 100}` +
         ` (see RBI e-mandate framework documentation)`,
+      policyVersion,
     };
   }
 
   // Rule 4: Retry and nudge limits exhausted
   const isTransientSource = ['gateway', 'razorpay'].includes(transaction.source);
   const isExhausted =
-    (isTransientSource && transaction.retryCount >= policyConfig.maxRetries) ||
-    (transaction.retryCount >= policyConfig.maxRetries &&
+    (isTransientSource && transaction.retryCount >= effectiveMaxRetries) ||
+    (transaction.retryCount >= effectiveMaxRetries &&
       transaction.nudgeCount >= policyConfig.maxNudges);
 
   if (isExhausted) {
@@ -115,20 +136,23 @@ export function diagnoseAndDecide(
       requiresApproval: false,
       blockedByCompliance: false,
       reason: 'exhausted retry and nudge limits',
+      policyVersion,
     };
   }
 
-  // Rule 5: Transient gateway/razorpay error — auto-retry if within limit
+  // Rule 5: Transient gateway/razorpay error — auto-retry if within tier-based limit
   const transientSources = ['gateway', 'razorpay'];
   if (
     transientSources.includes(transaction.source) &&
-    transaction.retryCount < policyConfig.maxRetries
+    transaction.retryCount < effectiveMaxRetries
   ) {
+    const tierNote = transaction.customerTier === 'vip' ? ' (VIP tier priority: up to 3 retries)' : '';
     return {
       action: 'auto_retry',
       requiresApproval: false,
       blockedByCompliance: false,
-      reason: `transient ${transaction.source} error, auto-retry within limit`,
+      reason: `transient ${transaction.source} error, auto-retry within limit${tierNote}`,
+      policyVersion,
     };
   }
 
@@ -148,6 +172,7 @@ export function diagnoseAndDecide(
         requiresApproval: false,
         blockedByCompliance: false,
         reason: 'customer-side, nudging within compliant window',
+        policyVersion,
       };
     } else {
       return {
@@ -156,6 +181,7 @@ export function diagnoseAndDecide(
         blockedByCompliance: true,
         reason:
           'outside compliant nudge window (TRAI SMS timing rules), deferred to next window',
+        policyVersion,
       };
     }
   }
@@ -176,6 +202,7 @@ export function diagnoseAndDecide(
       blockedByCompliance: false,
       reason:
         'card issue, requesting customer update payment method, no retry (would fail identically)',
+      policyVersion,
     };
   }
 
@@ -194,6 +221,7 @@ export function diagnoseAndDecide(
         requiresApproval: false,
         blockedByCompliance: false,
         reason: 'too soon, avoiding premature nudge',
+        policyVersion,
       };
     }
 
@@ -205,6 +233,7 @@ export function diagnoseAndDecide(
           requiresApproval: false,
           blockedByCompliance: false,
           reason: 'abandonment recovery window expired',
+          policyVersion,
         };
       }
 
@@ -218,6 +247,7 @@ export function diagnoseAndDecide(
           requiresApproval: false,
           blockedByCompliance: false,
           reason: 'cart abandonment recovery nudge, within compliant window',
+          policyVersion,
         };
       } else {
         return {
@@ -226,6 +256,7 @@ export function diagnoseAndDecide(
           blockedByCompliance: true,
           reason:
             'outside compliant nudge window (TRAI SMS timing rules), deferred to next window',
+          policyVersion,
         };
       }
     }
@@ -237,6 +268,7 @@ export function diagnoseAndDecide(
         requiresApproval: false,
         blockedByCompliance: false,
         reason: 'abandonment recovery window expired',
+        policyVersion,
       };
     }
   }
@@ -247,5 +279,6 @@ export function diagnoseAndDecide(
     requiresApproval: false,
     blockedByCompliance: false,
     reason: 'no applicable policy rule matched',
+    policyVersion,
   };
 }

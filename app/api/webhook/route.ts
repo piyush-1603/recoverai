@@ -187,10 +187,12 @@ export async function POST(req: NextRequest) {
     );
   } catch (error: any) {
     console.error('[Webhook] Internal error processing webhook:', error);
-    // Return 200 so Razorpay does not aggressively retry if it was an internal unrecoverable parse issue
+    // A validly-signed, new event that could not be processed must be retried
+    // by Razorpay. Explicit duplicate and unknown-transaction paths above
+    // already return 200 as intentionally handled outcomes.
     return NextResponse.json(
       { status: 'error', message: error?.message || 'Internal webhook error' },
-      { status: 200 },
+      { status: 500 },
     );
   }
 }

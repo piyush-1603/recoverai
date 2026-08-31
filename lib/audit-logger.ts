@@ -15,7 +15,9 @@ export type AuditActor =
   | 'policy_engine'
   | 'action_executor'
   | 'system'
-  | 'webhook';
+  | 'webhook'
+  | 'policy_engine_override'
+  | 'claude_agent+policy_engine';
 
 export type AuditEventRecord = {
   id: string;
@@ -25,6 +27,7 @@ export type AuditEventRecord = {
   action: string;
   reason: string;
   result: string;
+  policyVersion?: string;
   timestamp: Date;
 };
 
@@ -40,6 +43,7 @@ export type AuditEventRecord = {
  * @param reason        - Why the action was taken
  * @param result        - The outcome of the action
  * @param eventId       - Optional pre-computed idempotency key; auto-generated if omitted
+ * @param policyVersion - Policy version string (defaults to 'v1')
  * @returns             - The written AuditLog record, or null if duplicate
  */
 export async function writeEvent(
@@ -49,6 +53,7 @@ export async function writeEvent(
   reason: string,
   result: string,
   eventId?: string,
+  policyVersion: string = 'v1',
 ): Promise<AuditEventRecord | null> {
   // Generate a unique eventId if not provided
   const resolvedEventId =
@@ -59,27 +64,27 @@ export async function writeEvent(
       .digest('hex')
       .substring(0, 32);
 
-  // Idempotency check — silently skip if this eventId already exists
-  const existing = await prisma.auditLog.findUnique({
-    where: { eventId: resolvedEventId },
-  });
-
-  if (existing) {
-    return null; // Duplicate — do not write
+  try {
+    const record = await prisma.auditLog.create({
+      data: {
+        transactionId,
+        actor,
+        action,
+        reason,
+        result,
+        policyVersion,
+        eventId: resolvedEventId,
+      },
+    });
+    return record;
+  } catch (error: any) {
+    // Unique constraint violation (Prisma error code P2002) -> idempotent duplicate write
+    if (error?.code === 'P2002' || error?.message?.includes('UNIQUE constraint')) {
+      console.log(`[AuditLog] Duplicate eventId ignored: ${resolvedEventId}`);
+      return null;
+    }
+    throw error;
   }
-
-  const record = await prisma.auditLog.create({
-    data: {
-      transactionId,
-      eventId: resolvedEventId,
-      actor,
-      action,
-      reason,
-      result,
-    },
-  });
-
-  return record;
 }
 
 /**

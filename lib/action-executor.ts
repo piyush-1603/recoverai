@@ -59,13 +59,14 @@ function composeNudgeMessage(transaction: Transaction): string {
  */
 function simulateOutcome(
   transaction: Transaction,
-  action: string,
+  decision: PolicyDecision,
 ): {
   recovered: boolean;
   recoveredAmountPaise: number | null;
   outcome: string;
   note: string;
 } {
+  const { action, blockedByCompliance, reason } = decision;
   const { expectedRecoveryOutcome, simulatedRecoveryAmountPaise } = transaction;
 
   switch (action) {
@@ -73,8 +74,10 @@ function simulateOutcome(
       return {
         recovered: false,
         recoveredAmountPaise: null,
-        outcome: 'deferred',
-        note: 'No action taken; transaction remains in current state.',
+        outcome: blockedByCompliance ? 'compliance_deferred' : 'deferred',
+        note: blockedByCompliance
+          ? '[COMPLIANCE HOLD] SMS NOT sent — outside compliant window (TRAI SMS rules 10:00–21:00 IST), deferred to next window.'
+          : (reason || 'No action taken; transaction remains in current state.'),
       };
 
     case 'stop_unrecoverable':
@@ -82,7 +85,7 @@ function simulateOutcome(
         recovered: false,
         recoveredAmountPaise: null,
         outcome: 'marked_unrecoverable',
-        note: 'Transaction marked unrecoverable per policy.',
+        note: `[POLICY STOP] ${reason || 'Transaction marked unrecoverable per policy.'}`,
       };
 
     case 'auto_retry': {
@@ -195,7 +198,7 @@ export async function executeAction(
     } catch (err: any) {
       console.warn(`[ActionExecutor] Razorpay API call failed for ${transaction.id}:`, err?.message || err);
       // Fallback to deterministic simulation if network/credentials error
-      const fallback = simulateOutcome(transaction, action);
+      const fallback = simulateOutcome(transaction, decision);
       recovered = fallback.recovered;
       recoveredAmountPaise = fallback.recoveredAmountPaise;
       outcome = fallback.outcome;
@@ -203,7 +206,7 @@ export async function executeAction(
     }
   } else {
     // 2. Simulated execution for nudge, approval, stop_unrecoverable, or offline benchmark
-    const simulated = simulateOutcome(transaction, action);
+    const simulated = simulateOutcome(transaction, decision);
     recovered = simulated.recovered;
     recoveredAmountPaise = simulated.recoveredAmountPaise;
     outcome = simulated.outcome;
