@@ -1,60 +1,591 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import dynamic from 'next/dynamic';
+import { AnimatePresence, motion, animate } from 'framer-motion';
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { triggerDashboardDemo } from './actions';
-import { isSuccessfulRecoveryOutcome } from '@/lib/recovery-outcomes';
+import { isSimulatedFallbackOutcome, isSuccessfulRecoveryOutcome } from '@/lib/recovery-outcomes';
 import './dashboard.css';
 
-type Stats = { totalTransactions: number; totalAtRiskPaise: number; totalRecoveredPaise: number; recoveryRate: number; recoveredCount: number; unrecoverableCount: number; pendingCount: number };
-type AuditLog = { id: string; transactionId: string; eventId: string; actor: string; action: string; reason: string; result: string; timestamp: string; policyVersion?: string };
-type ExceptionItem = { id: string; externalPaymentId: string | null; amountPaise: number; source: string; type: string; reasonCode: string; createdAt: string };
+// Lazy-load the ambient 3D header canvas to prevent SSR overhead
+const HeaderNetwork3D = dynamic(() => import('./HeaderNetwork3D'), {
+  ssr: false,
+  loading: () => <div className="header-3d-fallback" aria-hidden="true" />,
+});
+
+type Stats = {
+  totalTransactions: number;
+  totalAtRiskPaise: number;
+  totalRecoveredPaise: number;
+  recoveryRate: number;
+  recoveredCount: number;
+  unrecoverableCount: number;
+  pendingCount: number;
+};
+
+type AuditLog = {
+  id: string;
+  transactionId: string;
+  eventId: string;
+  actor: string;
+  action: string;
+  reason: string;
+  result: string;
+  timestamp: string;
+  policyVersion?: string;
+};
+
+type ExceptionItem = {
+  id: string;
+  externalPaymentId: string | null;
+  amountPaise: number;
+  source: string;
+  type: string;
+  reasonCode: string;
+  createdAt: string;
+};
 
 const chartActions = ['auto_retry', 'send_nudge', 'request_approval'];
 
-function formatRupees(paise: number) { return `₹${(paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; }
-function formatTime(iso: string) { return new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(iso)); }
-function resultTone(result: string) { return isSuccessfulRecoveryOutcome(result) ? 'success' : result.includes('unrecoverable') || result.includes('failed') ? 'danger' : result.includes('overridden') || result.includes('hold') ? 'warning' : 'neutral'; }
-function tierFromReason(reason: string) { return reason.match(/\b(vip|standard|trial)\b/i)?.[1]?.toUpperCase(); }
-function policySignal(log: AuditLog) {
-  if (log.actor !== 'policy_engine_override') return null;
-  return { ai: log.reason.match(/Claude recommended [“"]([^”"]+)[”"]/)?.[1] ?? 'recommendation', enforced: log.reason.match(/policy engine enforced [“"]([^”"]+)[”"]/)?.[1] ?? log.action };
+function formatRupees(paise: number) {
+  return `₹${(paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function BootSequence({ transactionCount, policyVersion, onDone }: { transactionCount: number | null; policyVersion: string; onDone: () => void }) {
-  const lines = ['Initializing RecoverAI Engine...', 'Connecting to Razorpay test-mode API... OK', `Loading deterministic policy kernel ${policyVersion}... OK`, 'Verifying webhook signature handler... OK', 'Establishing Claude reasoning layer... OK', `Loading audit ledger (${transactionCount ?? 'syncing'} records)... OK`, 'System ready.'];
-  const [line, setLine] = useState(0); const [characters, setCharacters] = useState(0);
+function formatTime(iso: string) {
+  return new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(iso));
+}
+
+// Animated count-up component for Rupee values (600-900ms easing on load & refresh)
+function CountUpRupees({ valuePaise, duration = 0.75 }: { valuePaise: number; duration?: number }) {
+  const [displayValue, setDisplayValue] = useState(0);
+  const prevValue = useRef(0);
+
   useEffect(() => {
-    if (line >= lines.length) { const done = window.setTimeout(onDone, 280); return () => window.clearTimeout(done); }
-    if (characters < lines[line].length) { const next = window.setTimeout(() => setCharacters((value) => value + 1), 8); return () => window.clearTimeout(next); }
-    const next = window.setTimeout(() => { setLine((value) => value + 1); setCharacters(0); }, 42); return () => window.clearTimeout(next);
+    const start = prevValue.current;
+    const end = valuePaise;
+    prevValue.current = end;
+
+    const controls = animate(start, end, {
+      duration,
+      ease: [0.16, 1, 0.3, 1],
+      onUpdate: (latest) => {
+        setDisplayValue(Math.round(latest));
+      },
+    });
+
+    return () => controls.stop();
+  }, [valuePaise, duration]);
+
+  return <span>{formatRupees(displayValue)}</span>;
+}
+
+// Animated count-up component for numeric counts and percentages
+function CountUpNumber({
+  value,
+  suffix = '',
+  decimals = 0,
+  duration = 0.75,
+}: {
+  value: number;
+  suffix?: string;
+  decimals?: number;
+  duration?: number;
+}) {
+  const [displayValue, setDisplayValue] = useState(0);
+  const prevValue = useRef(0);
+
+  useEffect(() => {
+    const start = prevValue.current;
+    const end = value;
+    prevValue.current = end;
+
+    const controls = animate(start, end, {
+      duration,
+      ease: [0.16, 1, 0.3, 1],
+      onUpdate: (latest) => {
+        setDisplayValue(decimals > 0 ? Number(latest.toFixed(decimals)) : Math.round(latest));
+      },
+    });
+
+    return () => controls.stop();
+  }, [value, duration, decimals]);
+
+  return (
+    <span>
+      {decimals > 0 ? displayValue.toFixed(decimals) : displayValue}
+      {suffix}
+    </span>
+  );
+}
+
+// A simulated fallback is checked first and never rendered in the success tone:
+// it means the live gateway call failed, so the outcome is unverified rather
+// than a confirmed recovery, and it must not look like one on screen.
+const RESULT_LABELS: Record<string, string> = {
+  retry_simulated_fallback: 'simulated fallback / unconfirmed',
+  retry_simulated_fallback_no_recovery: 'simulated fallback / no recovery',
+};
+
+function resultLabel(result: string) {
+  return RESULT_LABELS[result] ?? result.replace(/_/g, ' ');
+}
+
+function resultTone(result: string) {
+  return isSimulatedFallbackOutcome(result)
+    ? 'warning'
+    : isSuccessfulRecoveryOutcome(result)
+    ? 'success'
+    : result.includes('unrecoverable') || result.includes('failed')
+    ? 'danger'
+    : result.includes('overridden') || result.includes('hold')
+    ? 'warning'
+    : 'neutral';
+}
+
+function tierFromReason(reason: string) {
+  return reason.match(/\b(vip|standard|trial)\b/i)?.[1]?.toUpperCase();
+}
+
+function policySignal(log: AuditLog) {
+  if (log.actor !== 'policy_engine_override') return null;
+  return {
+    ai: log.reason.match(/recommended [“"]([^”"]+)[”"]/)?.[1] ?? 'recommendation',
+    enforced: log.reason.match(/policy engine enforced [“"]([^”"]+)[”"]/)?.[1] ?? log.action,
+  };
+}
+
+function BootSequence({
+  transactionCount,
+  policyVersion,
+  onDone,
+}: {
+  transactionCount: number | null;
+  policyVersion: string;
+  onDone: () => void;
+}) {
+  const lines = [
+    'Initializing RecoverAI Engine...',
+    'Connecting to Razorpay test-mode API... OK',
+    `Loading deterministic policy kernel ${policyVersion}... OK`,
+    'Verifying webhook signature handler... OK',
+    'Establishing AI reasoning layer (Google Gemini)... OK',
+    `Loading audit ledger (${transactionCount ?? 'syncing'} records)... OK`,
+    'System ready.',
+  ];
+  const [line, setLine] = useState(0);
+  const [characters, setCharacters] = useState(0);
+
+  useEffect(() => {
+    if (line >= lines.length) {
+      const done = window.setTimeout(onDone, 280);
+      return () => window.clearTimeout(done);
+    }
+    if (characters < lines[line].length) {
+      const next = window.setTimeout(() => setCharacters((value) => value + 1), 8);
+      return () => window.clearTimeout(next);
+    }
+    const next = window.setTimeout(() => {
+      setLine((value) => value + 1);
+      setCharacters(0);
+    }, 42);
+    return () => window.clearTimeout(next);
   }, [characters, line, lines, onDone]);
-  return <div className="boot-screen" aria-label="RecoverAI system boot sequence"><div className="boot-inner">
-    {lines.slice(0, Math.min(line + 1, lines.length)).map((item, index) => <div key={index}><span className="boot-prompt">›</span>{index === line ? item.slice(0, characters) : item}</div>)}
-    {line >= lines.length && <span className="cursor">█</span>}<div className="boot-rule" /><div className="boot-caption">Recovery engine / trusted execution environment</div>
-  </div></div>;
+
+  return (
+    <div className="boot-screen" aria-label="RecoverAI system boot sequence">
+      <div className="boot-inner">
+        {lines.slice(0, Math.min(line + 1, lines.length)).map((item, index) => (
+          <div key={index}>
+            <span className="boot-prompt">›</span>
+            {index === line ? item.slice(0, characters) : item}
+          </div>
+        ))}
+        {line >= lines.length && <span className="cursor">█</span>}
+        <div className="boot-rule" />
+        <div className="boot-caption">Recovery engine / trusted execution environment</div>
+      </div>
+    </div>
+  );
 }
 
 export default function DashboardPage() {
-  const [stats, setStats] = useState<Stats | null>(null); const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]); const [exceptions, setExceptions] = useState<ExceptionItem[]>([]);
-  const [loading, setLoading] = useState(true); const [showBoot, setShowBoot] = useState(true); const [lastRefreshed, setLastRefreshed] = useState(new Date()); const [filterText, setFilterText] = useState('');
-  const [triggering, setTriggering] = useState<'live' | 'compliance' | null>(null); const [triggerNotification, setTriggerNotification] = useState<string | null>(null);
-  const knownLogIds = useRef(new Set<string>()); const [newLogIds, setNewLogIds] = useState<Set<string>>(new Set());
-  const fetchData = async () => { try { const response = await fetch('/api/audit'); if (!response.ok) return; const data = await response.json(); const received: AuditLog[] = data.auditLogs || []; setNewLogIds(new Set(knownLogIds.current.size ? received.filter((entry) => !knownLogIds.current.has(entry.id)).map((entry) => entry.id) : [])); knownLogIds.current = new Set(received.map((entry) => entry.id)); setStats(data.stats); setAuditLogs(received); setExceptions(data.exceptions || []); setLastRefreshed(new Date()); } catch (error) { console.error('Failed to poll /api/audit:', error); } finally { setLoading(false); } };
-  useEffect(() => { fetchData(); const interval = window.setInterval(fetchData, 3000); return () => window.clearInterval(interval); }, []);
-  const handleTrigger = async (kind: 'live' | 'compliance') => { setTriggering(kind); setTriggerNotification(null); try { const data = await triggerDashboardDemo(kind); const action = data.decision?.action?.replace(/_/g, ' ').toUpperCase() || 'EVENT'; setTriggerNotification(`${kind === 'compliance' ? 'Compliance test' : 'Live event'} recorded — ${action} on #${data.transactionId?.slice(-8)}. ${data.decision?.reason || ''}`); await fetchData(); } catch (error) { console.error('Trigger error:', error); setTriggerNotification('The live trigger could not be completed. Check the server log and retry.'); } finally { setTriggering(null); } };
-  const filteredLogs = useMemo(() => auditLogs.filter((log) => !filterText || [log.transactionId, log.actor, log.action, log.reason, log.result].some((value) => value.toLowerCase().includes(filterText.toLowerCase()))), [auditLogs, filterText]);
-  const recoveryChart = useMemo(() => chartActions.map((action) => { const relevant = auditLogs.filter((log) => log.action === action); const succeeded = relevant.filter((log) => isSuccessfulRecoveryOutcome(log.result)).length; return { action: action.replace('_', ' '), rate: relevant.length ? Number(((succeeded / relevant.length) * 100).toFixed(1)) : 0, events: relevant.length }; }), [auditLogs]);
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [exceptions, setExceptions] = useState<ExceptionItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showBoot, setShowBoot] = useState(true);
+  const [lastRefreshed, setLastRefreshed] = useState(new Date());
+  const [filterText, setFilterText] = useState('');
+  const [triggering, setTriggering] = useState<'live' | 'compliance' | null>(null);
+  const [triggerNotification, setTriggerNotification] = useState<string | null>(null);
+  const knownLogIds = useRef(new Set<string>());
+  const [newLogIds, setNewLogIds] = useState<Set<string>>(new Set());
+
+  const fetchData = async () => {
+    try {
+      const response = await fetch('/api/audit');
+      if (!response.ok) return;
+      const data = await response.json();
+      const received: AuditLog[] = data.auditLogs || [];
+      setNewLogIds(
+        new Set(
+          knownLogIds.current.size ? received.filter((entry) => !knownLogIds.current.has(entry.id)).map((entry) => entry.id) : []
+        )
+      );
+      knownLogIds.current = new Set(received.map((entry) => entry.id));
+      setStats(data.stats);
+      setAuditLogs(received);
+      setExceptions(data.exceptions || []);
+      setLastRefreshed(new Date());
+    } catch (error) {
+      console.error('Failed to poll /api/audit:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+    const interval = window.setInterval(fetchData, 3000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const handleTrigger = async (kind: 'live' | 'compliance') => {
+    setTriggering(kind);
+    setTriggerNotification(null);
+    try {
+      const data = await triggerDashboardDemo(kind);
+      const action = data.decision?.action?.replace(/_/g, ' ').toUpperCase() || 'EVENT';
+      setTriggerNotification(
+        `${kind === 'compliance' ? 'Compliance test' : 'Live event'} recorded — ${action} on #${data.transactionId?.slice(-8)}. ${
+          data.decision?.reason || ''
+        }`
+      );
+      await fetchData();
+    } catch (error) {
+      console.error('Trigger error:', error);
+      setTriggerNotification('The live trigger could not be completed. Check the server log and retry.');
+    } finally {
+      setTriggering(null);
+    }
+  };
+
+  const filteredLogs = useMemo(
+    () =>
+      auditLogs.filter(
+        (log) =>
+          !filterText ||
+          [log.transactionId, log.actor, log.action, log.reason, log.result].some((value) =>
+            value.toLowerCase().includes(filterText.toLowerCase())
+          )
+      ),
+    [auditLogs, filterText]
+  );
+
+  const recoveryChart = useMemo(
+    () =>
+      chartActions.map((action) => {
+        const relevant = auditLogs.filter((log) => log.action === action);
+        const succeeded = relevant.filter((log) => isSuccessfulRecoveryOutcome(log.result)).length;
+        return {
+          action: action.replace('_', ' '),
+          rate: relevant.length ? Number(((succeeded / relevant.length) * 100).toFixed(1)) : 0,
+          events: relevant.length,
+        };
+      }),
+    [auditLogs]
+  );
+
   const policyVersion = auditLogs.find((log) => log.policyVersion)?.policyVersion || 'v1';
-  return <>
-    <main className="dashboard"><header className="dashboard-header"><div><div className="eyebrow">RecoverAI / trusted recovery operations</div><h1 className="brand"><span className="brand-mark">/</span> recovery-engine</h1><p className="subhead">Deterministic policy execution · Razorpay test environment · append-only audit ledger</p></div><div className="header-actions"><span className="live-status"><i className="live-dot" />POLLING / 3S</span><Button variant="outline" onClick={fetchData}>↻ REFRESH</Button><Button variant="warning" onClick={() => handleTrigger('compliance')} disabled={Boolean(triggering)}>{triggering === 'compliance' ? 'RUNNING TEST…' : 'OFF-WINDOW COMPLIANCE TEST'}</Button><Button onClick={() => handleTrigger('live')} disabled={Boolean(triggering)}>{triggering === 'live' ? 'TRIGGERING…' : 'TRIGGER LIVE DEMO EVENT'}</Button></div></header>
-      {triggerNotification && <div className="notice">{triggerNotification}<button aria-label="Dismiss notification" onClick={() => setTriggerNotification(null)}>×</button></div>}
-      <section className="metrics" aria-label="Recovery summary"><Card className="metric"><div className="metric-label">Total at-risk volume</div><div className="metric-value">{formatRupees(stats?.totalAtRiskPaise || 0)}</div><div className="metric-detail">{stats?.totalTransactions || 0} transactions evaluated</div></Card><Card className="metric metric-success"><div className="metric-label">Recovered revenue</div><div className="metric-value">{formatRupees(stats?.totalRecoveredPaise || 0)}</div><div className="metric-detail">{stats?.recoveredCount || 0} successful recoveries</div><p className="metric-caption">Benchmark simulation across seeded test scenarios. Full live settlement (Razorpay Payment Link → real webhook → DB update) independently verified end-to-end — see “Trigger Live Demo Event”.</p></Card><Card className="metric metric-accent"><div className="metric-label">Recovery rate</div><div className="metric-value">{stats?.recoveryRate || 0}%</div><div className="metric-detail">Across all recovery activity</div></Card><Card className="metric metric-danger"><div className="metric-label">Honest exceptions</div><div className="metric-value">{stats?.unrecoverableCount || 0}</div><div className="metric-detail">Stopped as unrecoverable</div></Card></section>
-      <section className="analysis-grid"><Card><CardHeader><div className="eyebrow">Outcome analysis</div><h2 className="section-title">Recovery rate by action</h2><p className="section-subtitle">Computed from the live audit ledger currently returned by the server.</p></CardHeader><CardContent><div className="chart-wrap"><ResponsiveContainer width="100%" height="100%"><BarChart data={recoveryChart} layout="vertical" margin={{ top: 5, right: 38, bottom: 5, left: 8 }}><XAxis type="number" domain={[0, 100]} hide /><YAxis type="category" dataKey="action" width={108} tickLine={false} axisLine={false} tick={{ className: 'chart-name' }} /><Tooltip cursor={{ fill: '#252722' }} content={({ active, payload }) => active && payload?.[0] ? <div className="chart-tooltip">{payload[0].payload.action.toUpperCase()}<br />{payload[0].value}% recovered · {payload[0].payload.events} events</div> : null} /><Bar dataKey="rate" radius={0} barSize={18} label={{ position: 'right', formatter: (value) => `${value}%`, className: 'chart-value' }}>{recoveryChart.map((entry) => <Cell key={entry.action} fill="#b99b50" />)}</Bar></BarChart></ResponsiveContainer></div></CardContent></Card><Card><CardHeader><div className="eyebrow">Control plane</div><h2 className="section-title">Policy kernel</h2></CardHeader><CardContent><div className="metric-value">{policyVersion}</div><p className="section-subtitle">Authoritative execution is active. AI recommendations remain advisory and are surfaced below when overridden.</p><div className="meta" style={{ marginTop: 18, fontSize: 10, color: '#91948c' }}>LAST SYNC / {formatTime(lastRefreshed.toISOString())}<br />PENDING REVIEW / {stats?.pendingCount || 0}</div></CardContent></Card></section>
-      <section className="audit-layout"><Card><CardHeader><div className="audit-toolbar"><div><div className="eyebrow">Immutable ledger</div><h2 className="section-title">Live audit trail <span className="mono" style={{ color: '#96998f' }}>/ {filteredLogs.length}</span></h2><p className="section-subtitle">New records enter at the top. Policy overrides receive a focused review pulse.</p></div><input className="filter" aria-label="Filter audit log" placeholder="FILTER ID / ACTOR / ACTION" value={filterText} onChange={(event) => setFilterText(event.target.value)} /></div></CardHeader><CardContent><div className="table-scroll"><table className="audit-table"><thead><tr><th>Time</th><th>Transaction</th><th>Actor</th><th>Action</th><th>Decision record</th><th>Result</th></tr></thead><tbody>{filteredLogs.length ? filteredLogs.map((log) => { const signal = policySignal(log); const tier = tierFromReason(log.reason); return <motion.tr layout key={log.id} className={`${newLogIds.has(log.id) ? 'audit-row' : ''} ${signal ? 'audit-row-override' : ''}`} initial={newLogIds.has(log.id) ? { opacity: 0, y: -10 } : false} animate={{ opacity: 1, y: 0 }} transition={{ duration: .32 }}><td>{formatTime(log.timestamp)}</td><td className="id">#{log.transactionId.slice(-8)}</td><td><Badge tone={signal ? 'warning' : 'neutral'}>{log.actor.replace(/_/g, ' ')}</Badge>{tier && <Badge className={`tier-${tier.toLowerCase()}`} tone="accent">{tier}</Badge>}</td><td className="action">{log.action.replace(/_/g, ' ')}</td><td className="reason">{log.reason}{signal && <Badge className="override-signal" tone="warning">AI wanted: {signal.ai} → Policy enforced: {signal.enforced}</Badge>}</td><td><Badge tone={resultTone(log.result)}>{log.result.replace(/_/g, ' ')}</Badge></td></motion.tr>; }) : <tr><td colSpan={6} className="empty">{loading ? 'LOADING AUDIT TRAIL…' : 'NO AUDIT ENTRIES FOUND'}</td></tr>}</tbody></table></div></CardContent></Card><Card><CardHeader><div className="eyebrow">Stop conditions</div><h2 className="section-title">Honest exceptions <span className="mono" style={{ color: '#d68680' }}>/ {exceptions.length}</span></h2><p className="section-subtitle">Transactions deliberately routed to stop_unrecoverable.</p></CardHeader><CardContent><div className="exception-list">{exceptions.length ? exceptions.map((exception) => <article className="exception" key={exception.id}><div className="exception-top"><span className="exception-id">{exception.externalPaymentId || exception.id}</span><span className="exception-amount">{formatRupees(exception.amountPaise)}</span></div><div className="exception-meta"><Badge tone="neutral">{exception.type}</Badge><Badge tone="neutral">{exception.source}</Badge></div><div className="exception-reason">REASON / {exception.reasonCode || 'checkout_abandonment'}</div></article>) : <div className="empty">NO UNRECOVERABLE EXCEPTIONS</div>}</div></CardContent></Card></section>
-    </main><AnimatePresence>{showBoot && <motion.div key="boot" initial={{ opacity: 1 }} exit={{ opacity: 0, clipPath: 'inset(0 0 100% 0)' }} transition={{ duration: .55, ease: [0.76, 0, 0.24, 1] }}><BootSequence transactionCount={stats?.totalTransactions ?? null} policyVersion={policyVersion} onDone={() => setShowBoot(false)} /></motion.div>}</AnimatePresence></>;
+
+  return (
+    <>
+      <main className="dashboard">
+        <header className="dashboard-header">
+          <div className="header-content">
+            <div className="eyebrow">RecoverAI / trusted recovery operations</div>
+            <h1 className="brand">
+              <span className="brand-mark">/</span> recovery-engine
+            </h1>
+            <p className="subhead">Deterministic policy execution · Razorpay test environment · append-only audit ledger</p>
+          </div>
+          <HeaderNetwork3D />
+          <div className="header-actions">
+            <span className="live-status">
+              <i className="live-dot" />
+              POLLING / 3S
+            </span>
+            <Button variant="outline" onClick={fetchData}>
+              ↻ REFRESH
+            </Button>
+            <Button variant="warning" onClick={() => handleTrigger('compliance')} disabled={Boolean(triggering)}>
+              {triggering === 'compliance' ? 'RUNNING TEST…' : 'OFF-WINDOW COMPLIANCE TEST'}
+            </Button>
+            <Button onClick={() => handleTrigger('live')} disabled={Boolean(triggering)}>
+              {triggering === 'live' ? 'TRIGGERING…' : 'TRIGGER LIVE DEMO EVENT'}
+            </Button>
+          </div>
+        </header>
+
+        {triggerNotification && (
+          <div className="notice">
+            {triggerNotification}
+            <button aria-label="Dismiss notification" onClick={() => setTriggerNotification(null)}>
+              ×
+            </button>
+          </div>
+        )}
+
+        <section className="metrics" aria-label="Recovery summary">
+          <Card className="metric">
+            <div className="metric-label">Total at-risk volume</div>
+            <div className="metric-value">
+              <CountUpRupees valuePaise={stats?.totalAtRiskPaise || 0} />
+            </div>
+            <div className="metric-detail">{stats?.totalTransactions || 0} transactions evaluated</div>
+          </Card>
+          <Card className="metric metric-success">
+            <div className="metric-label">Recovered revenue</div>
+            <div className="metric-value">
+              <CountUpRupees valuePaise={stats?.totalRecoveredPaise || 0} />
+            </div>
+            <div className="metric-detail">{stats?.recoveredCount || 0} successful recoveries</div>
+            <p className="metric-caption">
+              Benchmark simulation across {stats?.totalTransactions || 0} seeded test scenarios. Full live settlement (Razorpay
+              Payment Link → real webhook → DB update) has been independently verified end-to-end for 1 transaction — not for all{' '}
+              {stats?.recoveredCount || 0} — see “Trigger Live Demo Event”.
+            </p>
+          </Card>
+          <Card className="metric metric-accent">
+            <div className="metric-label">Recovery rate</div>
+            <div className="metric-value">
+              <CountUpNumber value={stats?.recoveryRate || 0} suffix="%" decimals={1} />
+            </div>
+            <div className="metric-detail">Across all recovery activity</div>
+          </Card>
+          <Card className="metric metric-danger">
+            <div className="metric-label">Honest exceptions</div>
+            <div className="metric-value">
+              <CountUpNumber value={stats?.unrecoverableCount || 0} />
+            </div>
+            <div className="metric-detail">Stopped as unrecoverable</div>
+          </Card>
+        </section>
+
+        <section className="analysis-grid">
+          <Card>
+            <CardHeader>
+              <div className="eyebrow">Outcome analysis</div>
+              <h2 className="section-title">Recovery rate by action</h2>
+              <p className="section-subtitle">Computed from the live audit ledger currently returned by the server.</p>
+            </CardHeader>
+            <CardContent>
+              <div className="chart-wrap">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={recoveryChart} layout="vertical" margin={{ top: 5, right: 38, bottom: 5, left: 8 }}>
+                    <XAxis type="number" domain={[0, 100]} hide />
+                    <YAxis
+                      type="category"
+                      dataKey="action"
+                      width={108}
+                      tickLine={false}
+                      axisLine={false}
+                      tick={{ className: 'chart-name' }}
+                    />
+                    <Tooltip
+                      cursor={{ fill: '#252722' }}
+                      content={({ active, payload }) =>
+                        active && payload?.[0] ? (
+                          <div className="chart-tooltip">
+                            {payload[0].payload.action.toUpperCase()}
+                            <br />
+                            {payload[0].value}% recovered · {payload[0].payload.events} events
+                          </div>
+                        ) : null
+                      }
+                    />
+                    <Bar
+                      dataKey="rate"
+                      radius={0}
+                      barSize={18}
+                      isAnimationActive={true}
+                      animationDuration={850}
+                      animationEasing="ease-out"
+                      animationBegin={80}
+                      label={{
+                        position: 'right',
+                        formatter: (value) => `${value}%`,
+                        className: 'chart-value',
+                      }}
+                    >
+                      {recoveryChart.map((entry) => (
+                        <Cell key={entry.action} fill="#b99b50" />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <div className="eyebrow">Control plane</div>
+              <h2 className="section-title">Policy kernel</h2>
+            </CardHeader>
+            <CardContent>
+              <div className="metric-value">{policyVersion}</div>
+              <p className="section-subtitle">
+                Authoritative execution is active. AI recommendations remain advisory and are surfaced below when overridden.
+              </p>
+              <div className="meta" style={{ marginTop: 18, fontSize: 10, color: '#91948c' }}>
+                LAST SYNC / {formatTime(lastRefreshed.toISOString())}
+                <br />
+                PENDING REVIEW / {stats?.pendingCount || 0}
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="audit-layout">
+          <Card>
+            <CardHeader>
+              <div className="audit-toolbar">
+                <div>
+                  <div className="eyebrow">Immutable ledger</div>
+                  <h2 className="section-title">
+                    Live audit trail <span className="mono" style={{ color: '#96998f' }}>/ {filteredLogs.length}</span>
+                  </h2>
+                  <p className="section-subtitle">
+                    New records enter at the top. Policy overrides receive a focused review pulse. The advising provider and model
+                    are recorded on each audit row from this build onward; historical rows predate that instrumentation and carry no
+                    provider attribution.
+                  </p>
+                </div>
+                <input
+                  className="filter"
+                  aria-label="Filter audit log"
+                  placeholder="FILTER ID / ACTOR / ACTION"
+                  value={filterText}
+                  onChange={(event) => setFilterText(event.target.value)}
+                />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="table-scroll">
+                <table className="audit-table">
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Transaction</th>
+                      <th>Actor</th>
+                      <th>Action</th>
+                      <th>Decision record</th>
+                      <th>Result</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredLogs.length ? (
+                      filteredLogs.map((log) => {
+                        const signal = policySignal(log);
+                        const tier = tierFromReason(log.reason);
+                        return (
+                          <motion.tr
+                            layout
+                            key={log.id}
+                            className={`${newLogIds.has(log.id) ? 'audit-row' : ''} ${signal ? 'audit-row-override' : ''}`}
+                            initial={newLogIds.has(log.id) ? { opacity: 0, y: -10 } : false}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.32 }}
+                          >
+                            <td>{formatTime(log.timestamp)}</td>
+                            <td className="id">#{log.transactionId.slice(-8)}</td>
+                            <td>
+                              <Badge tone={signal ? 'warning' : 'neutral'}>{log.actor.replace(/_/g, ' ')}</Badge>
+                              {tier && (
+                                <Badge className={`tier-${tier.toLowerCase()}`} tone="accent">
+                                  {tier}
+                                </Badge>
+                              )}
+                            </td>
+                            <td className="action">{log.action.replace(/_/g, ' ')}</td>
+                            <td className="reason">
+                              {log.reason}
+                              {signal && (
+                                <Badge className="override-signal" tone="warning">
+                                  AI wanted: {signal.ai} → Policy enforced: {signal.enforced}
+                                </Badge>
+                              )}
+                            </td>
+                            <td>
+                              <Badge tone={resultTone(log.result)}>{resultLabel(log.result)}</Badge>
+                            </td>
+                          </motion.tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={6} className="empty">
+                          {loading ? 'LOADING AUDIT TRAIL…' : 'NO AUDIT ENTRIES FOUND'}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <div className="eyebrow">Stop conditions</div>
+              <h2 className="section-title">
+                Honest exceptions <span className="mono" style={{ color: '#d68680' }}>/ {exceptions.length}</span>
+              </h2>
+              <p className="section-subtitle">Transactions deliberately routed to stop_unrecoverable.</p>
+            </CardHeader>
+            <CardContent>
+              <div className="exception-list">
+                {exceptions.length ? (
+                  exceptions.map((exception) => (
+                    <article className="exception" key={exception.id}>
+                      <div className="exception-top">
+                        <span className="exception-id">{exception.externalPaymentId || exception.id}</span>
+                        <span className="exception-amount">{formatRupees(exception.amountPaise)}</span>
+                      </div>
+                      <div className="exception-meta">
+                        <Badge tone="neutral">{exception.type}</Badge>
+                        <Badge tone="neutral">{exception.source}</Badge>
+                      </div>
+                      <div className="exception-reason">REASON / {exception.reasonCode || 'checkout_abandonment'}</div>
+                    </article>
+                  ))
+                ) : (
+                  <div className="empty">NO UNRECOVERABLE EXCEPTIONS</div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+      </main>
+      <AnimatePresence>
+        {showBoot && (
+          <motion.div
+            key="boot"
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0, clipPath: 'inset(0 0 100% 0)' }}
+            transition={{ duration: 0.55, ease: [0.76, 0, 0.24, 1] }}
+          >
+            <BootSequence
+              transactionCount={stats?.totalTransactions ?? null}
+              policyVersion={policyVersion}
+              onDone={() => setShowBoot(false)}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
+  );
 }

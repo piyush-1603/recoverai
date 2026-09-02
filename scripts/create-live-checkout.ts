@@ -107,7 +107,13 @@ async function main() {
   console.log('  🎯 CHECKOUT DETAILS READY FOR LIVE BROWSER TEST');
   console.log(hr());
   console.log(`  Transaction ID   : ${updatedTx.id}`);
-  console.log(`  Status in DB     : ${updatedTx.status} (awaiting webhook payment confirmation)`);
+  // Do not claim the record is awaiting a webhook when no link was ever created.
+  console.log(`  Status in DB     : ${updatedTx.status}${result.simulatedFallback ? ' (live Razorpay call FAILED — no checkout link exists)' : ' (awaiting webhook payment confirmation)'}`);
+  if (result.simulatedFallback) {
+    console.log(`  Live Call Error  : ${result.fallbackError}`);
+    console.log('  ⚠️  No usable checkout URL was produced. Fix connectivity/credentials and re-run;');
+    console.log('     the outcome below is a simulated fallback, not a real payment link.');
+  }
   console.log(`  Payment Link ID  : ${result.razorpayDetails?.paymentLinkId || updatedTx.externalPaymentId}`);
   console.log(`  Checkout URL     : ${result.razorpayDetails?.shortUrl || 'https://rzp.io/i/...'}`);
   console.log(`  Amount Payable   : ${rupees(targetTx.amountPaise)}`);

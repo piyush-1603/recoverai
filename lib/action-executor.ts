@@ -3,7 +3,7 @@
  *
  * Executes the action decided by the policy engine against a transaction.
  * This is the ONLY module permitted to mutate transaction state in the database.
- * The policy engine and Claude agent never touch the DB directly.
+ * The policy engine and AI advisory agent never touch the DB directly.
  *
  * Live Razorpay Integration:
  *  - When valid Razorpay credentials are present, 'auto_retry' creates a genuine
@@ -12,6 +12,11 @@
  *  - Final recovery transition (status: 'recovered') is driven asynchronously by
  *    inbound Razorpay Webhooks (payment.captured / payment_link.paid), ensuring genuine
  *    end-to-end payment confirmation.
+ *  - If that live call fails, the deterministic simulation stands in so the
+ *    pipeline still produces a trace — but the result is reported as
+ *    'retry_simulated_fallback' with success=false and recovered=false, and the
+ *    underlying API error is carried in `note` for the audit row. A failed
+ *    outbound request is never allowed to look like collected money.
  */
 
 import 'dotenv/config';
@@ -26,11 +31,20 @@ import {
 export type ExecutionResult = {
   transactionId: string;
   action: string;
+  /**
+   * True only when the action the policy engine asked for actually completed as
+   * requested. A live Razorpay call that threw and fell back to the offline
+   * simulation is NOT a success, even though a fallback outcome was produced.
+   */
   success: boolean;
   recovered: boolean;
   recoveredAmountPaise: number | null;
   outcome: string;
   note: string;
+  /** True when the live Razorpay call failed and the simulation stood in for it. */
+  simulatedFallback: boolean;
+  /** The actual cause of that failure, so callers can persist it. */
+  fallbackError?: string;
   externalPaymentId?: string;
   razorpayDetails?: {
     paymentLinkId: string;
@@ -39,6 +53,79 @@ export type ExecutionResult = {
     amount: number | string;
   };
 };
+
+/**
+ * Result values reserved for "the live call failed, so this number came from the
+ * offline simulation". Deliberately distinct from the simulation's own outcomes:
+ * a simulated result reached *after* an API failure is not evidence of anything
+ * and must never be presented as a confirmed recovery. Neither value appears in
+ * SUCCESSFUL_RECOVERY_OUTCOMES, so reporting and dashboard rollups exclude them.
+ */
+const FALLBACK_OUTCOMES: Record<string, string> = {
+  retry_succeeded: 'retry_simulated_fallback',
+  retry_failed: 'retry_simulated_fallback_no_recovery',
+};
+
+/**
+ * Extracts a human-readable cause from a thrown Razorpay / network error.
+ *
+ * The Razorpay SDK does not throw `Error` instances for API-level failures — it
+ * rejects with a plain object shaped `{ statusCode, error: { code, description,
+ * … } }`, and where outbound requests are filtered `error` can be `undefined`
+ * altogether. Reading `err?.message` alone therefore yields `undefined`, which
+ * is what previously reduced the audit note to "Razorpay call fallback: API
+ * error" and discarded the only evidence of what went wrong. Walk every shape
+ * the SDK and the runtime can produce before giving up.
+ */
+function describeApiError(err: unknown): string {
+  if (err === null || err === undefined) return 'unknown error (nothing thrown)';
+  if (typeof err === 'string') return err;
+
+  const e = err as Record<string, any>;
+  const parts: string[] = [];
+
+  const description = e.error?.description ?? e.error?.reason ?? e.error?.message;
+  if (typeof description === 'string' && description) parts.push(description);
+  if (typeof e.message === 'string' && e.message) parts.push(e.message);
+
+  const code = e.error?.code ?? e.code;
+  if (code) parts.push(`code=${code}`);
+
+  if (e.statusCode !== undefined) {
+    // Flag the bodyless case explicitly — an HTTP status with no payload is the
+    // signature of a rejected/filtered request rather than a Razorpay refusal.
+    parts.push(
+      parts.length
+        ? `httpStatus=${e.statusCode}`
+        : `httpStatus=${e.statusCode} (no error body returned)`,
+    );
+  }
+
+  if (parts.length) return parts.join(' | ');
+
+  try {
+    const serialised = JSON.stringify(err);
+    if (serialised && serialised !== '{}') return serialised;
+  } catch {
+    /* circular or otherwise unserialisable — fall through */
+  }
+  return `unserialisable ${typeof err} thrown by the Razorpay client`;
+}
+
+/**
+ * Ledger suffix carrying the executor's note when — and only when — that note
+ * holds something the `result` column cannot: the actual API error behind a
+ * simulated fallback.
+ *
+ * Every `writeEvent` caller used to compute `result.note` and then drop it, so
+ * the reason a live call failed never reached the audit row. Appending only on
+ * the fallback path keeps the 65 benchmark reason strings unchanged while
+ * guaranteeing a real failure is never silently swallowed.
+ */
+export function auditReasonSuffix(result: ExecutionResult): string {
+  if (!result.simulatedFallback) return '';
+  return ` [EXECUTOR FALLBACK] ${result.note}`;
+}
 
 function composeNudgeMessage(transaction: Transaction): string {
   const amountStr = `₹${(transaction.amountPaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
@@ -160,6 +247,9 @@ export async function executeAction(
   let recoveredAmountPaise: number | null = null;
   let outcome = 'deferred';
   let note = '';
+  let success = true;
+  let simulatedFallback = false;
+  let fallbackError: string | undefined = undefined;
   let updatedExternalPaymentId: string | undefined = undefined;
   let razorpayDetails: any = undefined;
 
@@ -195,14 +285,28 @@ export async function executeAction(
       recoveredAmountPaise = null;
       outcome = 'link_created_awaiting_payment';
       note = `Live Razorpay Payment Link created (${link.id}). Checkout URL: ${link.short_url}. Awaiting webhook confirmation.`;
-    } catch (err: any) {
-      console.warn(`[ActionExecutor] Razorpay API call failed for ${transaction.id}:`, err?.message || err);
-      // Fallback to deterministic simulation if network/credentials error
+    } catch (err: unknown) {
+      const cause = describeApiError(err);
+      console.warn(`[ActionExecutor] Razorpay API call failed for ${transaction.id}: ${cause}`);
+
+      // The live call was the only thing that could have produced evidence of a
+      // recovery, and it failed. Fall back to the deterministic simulation so
+      // the pipeline still yields a decision trace, but report the result for
+      // what it is: a simulation reached after an API failure. It is not a
+      // success and not a recovery. Leaving `recovered` true here — as this
+      // branch previously did — let a blocked outbound request mark money as
+      // collected and stamp the transaction 'recovered' in the database.
       const fallback = simulateOutcome(transaction, decision);
-      recovered = fallback.recovered;
-      recoveredAmountPaise = fallback.recoveredAmountPaise;
-      outcome = fallback.outcome;
-      note = `${fallback.note} (Razorpay call fallback: ${err?.message || 'API error'})`;
+      simulatedFallback = true;
+      fallbackError = cause;
+      success = false;
+      recovered = false;
+      recoveredAmountPaise = null;
+      outcome = FALLBACK_OUTCOMES[fallback.outcome] ?? `${fallback.outcome}_simulated_fallback`;
+      note =
+        `[SIMULATED FALLBACK — NOT A CONFIRMED RECOVERY] Razorpay Payment Link creation failed ` +
+        `(${cause}). No live link exists and no payment was confirmed. The offline simulation ` +
+        `would have reported "${fallback.outcome}": ${fallback.note}`;
     }
   } else {
     // 2. Simulated execution for nudge, approval, stop_unrecoverable, or offline benchmark
@@ -268,11 +372,13 @@ export async function executeAction(
   return {
     transactionId: transaction.id,
     action,
-    success: true,
+    success,
     recovered,
     recoveredAmountPaise,
     outcome,
     note,
+    simulatedFallback,
+    fallbackError,
     externalPaymentId: updatedExternalPaymentId,
     razorpayDetails,
   };

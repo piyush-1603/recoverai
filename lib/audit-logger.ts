@@ -11,12 +11,17 @@ import { prisma } from './prisma';
 import crypto from 'crypto';
 
 export type AuditActor =
-  | 'claude_agent'
+  | 'ai_agent'
   | 'policy_engine'
   | 'action_executor'
   | 'system'
   | 'webhook'
   | 'policy_engine_override'
+  | 'ai_agent+policy_engine'
+  // Historical actors, retained so rows written before the advisory layer was
+  // made provider-agnostic stay representable. Not used by any new write —
+  // the frozen baseline was reasoned over by Google Gemini, not Anthropic.
+  | 'claude_agent'
   | 'claude_agent+policy_engine';
 
 export type AuditEventRecord = {
@@ -27,9 +32,25 @@ export type AuditEventRecord = {
   action: string;
   reason: string;
   result: string;
+  provider?: string | null;
+  model?: string | null;
   policyVersion?: string;
   timestamp: Date;
 };
+
+/**
+ * Renders the advisory attribution used at the head of a ledger reason string.
+ *
+ * Always derived from the live recommendation object, never from a hardcoded
+ * provider name, so a row records whichever provider actually answered — Gemini
+ * on the primary path, Anthropic or OpenAI when the fallback chain engages.
+ * Degrades to a bare 'AI' rather than inventing attribution when the caller has
+ * nothing to attribute.
+ */
+export function describeAdvisor(provider?: string | null, model?: string | null): string {
+  if (!provider) return 'AI';
+  return model ? `AI (${provider} · ${model})` : `AI (${provider})`;
+}
 
 /**
  * Write an audit event.
@@ -44,6 +65,8 @@ export type AuditEventRecord = {
  * @param result        - The outcome of the action
  * @param eventId       - Optional pre-computed idempotency key; auto-generated if omitted
  * @param policyVersion - Policy version string (defaults to 'v1')
+ * @param provider      - AI provider that produced the advisory recommendation (omit for non-AI actors)
+ * @param model         - Exact model id behind that recommendation (omit for non-AI actors)
  * @returns             - The written AuditLog record, or null if duplicate
  */
 export async function writeEvent(
@@ -54,6 +77,8 @@ export async function writeEvent(
   result: string,
   eventId?: string,
   policyVersion: string = 'v1',
+  provider?: string | null,
+  model?: string | null,
 ): Promise<AuditEventRecord | null> {
   // Generate a unique eventId if not provided
   const resolvedEventId =
@@ -74,6 +99,8 @@ export async function writeEvent(
         result,
         policyVersion,
         eventId: resolvedEventId,
+        provider: provider ?? null,
+        model: model ?? null,
       },
     });
     return record;

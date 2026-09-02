@@ -12,3 +12,18 @@ export const SUCCESSFUL_RECOVERY_OUTCOMES = [
 export function isSuccessfulRecoveryOutcome(outcome: string): boolean {
   return (SUCCESSFUL_RECOVERY_OUTCOMES as readonly string[]).includes(outcome);
 }
+
+/**
+ * Outcomes produced when a live Razorpay call failed and the offline simulation
+ * stood in for it. These are intentionally absent from the list above: the
+ * simulation ran because there was no gateway response, so its verdict is not
+ * evidence of a recovery. Do not add them.
+ */
+export const SIMULATED_FALLBACK_OUTCOMES = [
+  'retry_simulated_fallback',
+  'retry_simulated_fallback_no_recovery',
+] as const;
+
+export function isSimulatedFallbackOutcome(outcome: string): boolean {
+  return outcome.includes('simulated_fallback');
+}

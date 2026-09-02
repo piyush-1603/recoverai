@@ -1,10 +1,12 @@
 /**
  * /scripts/run-demo.ts
  *
- * Real Claude API Execution Pipeline for Recovery Engine.
+ * Real AI API Execution Pipeline for Recovery Engine.
  *
- * Enforces REAL Claude API calls via @anthropic-ai/sdk.
- * Explicitly verifies isRealApi === true on every call and measures exact wall-clock execution time.
+ * Enforces REAL LLM calls through the multi-provider advisory layer in
+ * lib/claude-agent.ts (Google Gemini primary, Anthropic and OpenAI as fallbacks).
+ * Explicitly verifies isRealApi === true on every call, reports the provider and
+ * model that actually answered, and measures exact wall-clock execution time.
  *
  * Run via: npm run demo  OR  npx tsx --tsconfig tsconfig.scripts.json scripts/run-demo.ts
  */
@@ -12,9 +14,13 @@
 import 'dotenv/config';
 import { prisma } from '../lib/prisma';
 import { diagnoseAndDecide } from '../lib/policy-engine';
-import { recommendAction, ClaudeRecommendation } from '../lib/claude-agent';
-import { executeAction } from '../lib/action-executor';
-import { writeEvent } from '../lib/audit-logger';
+import {
+  recommendAction,
+  describeConfiguredProviders,
+  ClaudeRecommendation,
+} from '../lib/claude-agent';
+import { executeAction, auditReasonSuffix } from '../lib/action-executor';
+import { writeEvent, describeAdvisor } from '../lib/audit-logger';
 import { seedDatabase } from '../data/seed-transactions';
 
 function rupees(paise: number): string {
@@ -34,21 +40,20 @@ async function runDemo() {
 
   console.log('\n' + hr('═'));
   console.log('  🚀  RECOVERY ENGINE — FULL DEMO PIPELINE');
-  console.log('      (Real Claude API Reasoning + Deterministic Policy Engine Authority)');
+  console.log('      (Real AI Advisory Reasoning + Deterministic Policy Engine Authority)');
   console.log(hr('═'));
   console.log(`  Execution Time : ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST\n`);
 
-  // Pre-flight check for live AI API Key
-  const hasKey =
-    (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim() !== '') ||
-    (process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_API_KEY.trim() !== '') ||
-    (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.trim() !== '');
+  // Pre-flight check for a live AI provider. Asks the advisory layer itself which
+  // providers are configured rather than re-testing env keys here, so this can
+  // never disagree with what recommendAction() will actually attempt.
+  const providerChain = describeConfiguredProviders();
 
-  if (!hasKey) {
+  if (providerChain.length === 0) {
     console.error('\n' + hr('!'));
-    console.error('  ❌ FATAL PRECONDITION: No AI API Key is set in .env!');
+    console.error('  ❌ FATAL PRECONDITION: No AI provider key is set in .env!');
     console.error('  Real AI execution is strictly enforced.');
-    console.error('  Please add GEMINI_API_KEY or ANTHROPIC_API_KEY to .env.');
+    console.error('  Please add GEMINI_API_KEY (primary), ANTHROPIC_API_KEY, or OPENAI_API_KEY to .env.');
     console.error(hr('!') + '\n');
     process.exit(1);
   }
@@ -81,7 +86,12 @@ async function runDemo() {
   console.log(bar('• Trial Max Retries', `${policyConfig.trialMaxRetries ?? 1} attempt`));
   console.log(bar('• Nudge Compliance Window', `${policyConfig.nudgeWindowStartHour}:00 – ${policyConfig.nudgeWindowEndHour}:00 IST`));
   console.log(bar('• Evaluation Hour', `${currentHour}:00 IST (Daytime Compliant Window)`));
-  console.log(bar('• AI Provider / Model', 'Google Gemini (gemini-3.5-flash-lite)'));
+  console.log(
+    bar(
+      '• AI Advisory Chain',
+      providerChain.map((p, i) => `${i === 0 ? 'primary' : 'fallback'}: ${p.provider} (${p.model})`).join(' → '),
+    ),
+  );
   console.log();
 
   // 3. Load All Fresh Transactions
@@ -111,8 +121,9 @@ async function runDemo() {
     externalPaymentId: string | null;
     customerTier: string;
     amountPaise: number;
-    claudeAction: string;
-    claudeReasoning: string;
+    aiAction: string;
+    aiReasoning: string;
+    advisor: string;
     policyAction: string;
     policyReason: string;
     executedAction: string;
@@ -125,7 +136,12 @@ async function runDemo() {
   let aiMatchedCount = 0;
   let aiOverriddenCount = 0;
 
-  console.log(`  🤖 Dispatching Real Claude API calls for ${transactions.length} transactions...\n`);
+  // Which provider/model combinations actually answered, tallied from the live
+  // responses. Reported in the summary so the run states what really served it
+  // instead of asserting a provider up front.
+  const observedAdvisors = new Map<string, number>();
+
+  console.log(`  🤖 Dispatching real ${providerChain[0].provider} advisory calls for ${transactions.length} transactions...\n`);
 
   // Process sequentially to guarantee 100% rate-limit compliance and clean output logging
   for (let i = 0; i < transactions.length; i++) {
@@ -134,39 +150,48 @@ async function runDemo() {
     totalAtRiskPaise += tx.amountPaise;
 
     // Step A: Real Live AI Call
-    const claudeStart = Date.now();
-    const claudeRec: ClaudeRecommendation = await recommendAction(tx as any, policyConfig);
-    const claudeElapsed = Date.now() - claudeStart;
+    const advisoryStart = Date.now();
+    const aiRec: ClaudeRecommendation = await recommendAction(tx as any, policyConfig);
+    const advisoryElapsed = Date.now() - advisoryStart;
 
     // Strict verification of real API flag
-    if (!claudeRec.isRealApi) {
+    if (!aiRec.isRealApi) {
       throw new Error(`❌ FATAL: Transaction ${tx.id} did not execute via real AI API!`);
     }
+
+    const advisorKey = `${aiRec.provider} (${aiRec.model})`;
+    observedAdvisors.set(advisorKey, (observedAdvisors.get(advisorKey) ?? 0) + 1);
+    const advisor = describeAdvisor(aiRec.provider, aiRec.model);
 
     // Step B: Pure Deterministic Policy Diagnosis (Authoritative)
     const policyDecision = diagnoseAndDecide(tx as any, policyConfig, currentHour);
 
-    const isMatch = claudeRec.recommendedAction === policyDecision.action;
+    const isMatch = aiRec.recommendedAction === policyDecision.action;
 
     // Step C: Action Execution (Only Policy Engine decision is executed)
     const result = await executeAction(policyDecision, tx, 'simulate');
+    // Empty on the simulate path; carries the real API error if a live call ever
+    // fails here, so the executor's note can never be silently dropped.
+    const executorNote = auditReasonSuffix(result);
 
     const statusTag = isMatch ? '✓ MATCH' : '⚡ OVERRIDE';
     const txIdStr = (tx.externalPaymentId || tx.id).padEnd(24);
     console.log(
-      `  [${String(globalIdx).padStart(2)}/${transactions.length}] ${txIdStr} | ${claudeElapsed}ms | RealAPI: ${claudeRec.isRealApi} | Claude: ${claudeRec.recommendedAction.padEnd(17)} | Policy: ${policyDecision.action.padEnd(17)} | ${statusTag}`
+      `  [${String(globalIdx).padStart(2)}/${transactions.length}] ${txIdStr} | ${advisoryElapsed}ms | RealAPI: ${aiRec.isRealApi} | ${aiRec.provider}: ${aiRec.recommendedAction.padEnd(17)} | Policy: ${policyDecision.action.padEnd(17)} | ${statusTag}`
     );
 
     if (isMatch) {
       aiMatchedCount++;
       await writeEvent(
         tx.id,
-        'claude_agent+policy_engine',
+        'ai_agent+policy_engine',
         policyDecision.action,
-        `Claude recommended "${claudeRec.recommendedAction}" (${claudeRec.reasoning}) — Confirmed by policy: ${policyDecision.reason}`,
+        `${advisor} recommended "${aiRec.recommendedAction}" (${aiRec.reasoning}) — Confirmed by policy: ${policyDecision.reason}${executorNote}`,
         result.outcome,
         undefined,
         policyDecision.policyVersion,
+        aiRec.provider,
+        aiRec.model,
       );
     } else {
       aiOverriddenCount++;
@@ -174,10 +199,12 @@ async function runDemo() {
         tx.id,
         'policy_engine_override',
         'override',
-        `Claude recommended "${claudeRec.recommendedAction}" (${claudeRec.reasoning}) but policy engine enforced "${policyDecision.action}" per rule: ${policyDecision.reason}`,
+        `${advisor} recommended "${aiRec.recommendedAction}" (${aiRec.reasoning}) but policy engine enforced "${policyDecision.action}" per rule: ${policyDecision.reason}${executorNote}`,
         'ai_recommendation_overridden',
         undefined,
         policyDecision.policyVersion,
+        aiRec.provider,
+        aiRec.model,
       );
 
       overriddenCases.push({
@@ -185,12 +212,13 @@ async function runDemo() {
         externalPaymentId: tx.externalPaymentId,
         customerTier: tx.customerTier,
         amountPaise: tx.amountPaise,
-        claudeAction: claudeRec.recommendedAction,
-        claudeReasoning: claudeRec.reasoning,
+        aiAction: aiRec.recommendedAction,
+        aiReasoning: aiRec.reasoning,
+        advisor: advisorKey,
         policyAction: policyDecision.action,
         policyReason: policyDecision.reason,
         executedAction: policyDecision.action,
-        isRealApi: claudeRec.isRealApi,
+        isRealApi: aiRec.isRealApi,
       });
     }
 
@@ -227,12 +255,15 @@ async function runDemo() {
 
   // 4. Output Summary Report
   const totalTimeSeconds = ((Date.now() - startTime) / 1000).toFixed(2);
+  const observedSummary = Array.from(observedAdvisors.entries())
+    .map(([advisor, count]) => `${count}× ${advisor}`)
+    .join(', ');
 
   console.log('\n' + hr('═'));
   console.log('  📊  DEMO AGGREGATE RECOVERY RESULTS');
   console.log(hr('═'));
   console.log(bar('Total Transactions Processed', transactions.length));
-  console.log(bar('Total Wall-Clock Runtime', `${totalTimeSeconds}s (Live Anthropic API calls)`));
+  console.log(bar('Total Wall-Clock Runtime', `${totalTimeSeconds}s (live AI advisory + policy execution)`));
   console.log(bar('Total At-Risk Volume', rupees(totalAtRiskPaise)));
   console.log(bar('Total Recovered Revenue', rupees(totalRecoveredPaise)));
 
@@ -246,21 +277,22 @@ async function runDemo() {
   console.log('\n' + hr('─'));
   console.log('  🤖  REAL AI REASONING & POLICY ENFORCEMENT SUMMARY');
   console.log(hr('─'));
+  console.log(bar('Served By (observed, not assumed)', observedSummary || 'none'));
   console.log(
     bar(
       'AI Recommendations',
-      `${transactions.length} total (100% Real Claude API), ${aiMatchedCount} matched policy, ${aiOverriddenCount} overridden by policy engine`,
+      `${transactions.length} total (100% real API calls), ${aiMatchedCount} matched policy, ${aiOverriddenCount} overridden by policy engine`,
     ),
   );
 
   // 5. Detail of Overridden Cases
   if (overriddenCases.length > 0) {
-    console.log('\n  ⚡ Detailed Policy Override Log (Real Claude AI vs Policy Engine):\n');
+    console.log('\n  ⚡ Detailed Policy Override Log (Real AI Advisory vs Policy Engine):\n');
     for (let i = 0; i < overriddenCases.length; i++) {
       const oc = overriddenCases[i];
       console.log(`  [Override #${i + 1}] ${(oc.externalPaymentId || oc.transactionId).padEnd(26)} ${rupees(oc.amountPaise).padStart(12)}  [Tier: ${oc.customerTier.toUpperCase()}]`);
-      console.log(`    • Claude AI Wanted : ${oc.claudeAction.toUpperCase()} (Real API Call ✓)`);
-      console.log(`      Genuine Reasoning: "${oc.claudeReasoning}"`);
+      console.log(`    • AI Wanted        : ${oc.aiAction.toUpperCase()} — via ${oc.advisor} (Real API Call ✓)`);
+      console.log(`      Genuine Reasoning: "${oc.aiReasoning}"`);
       console.log(`    • Policy Enforced  : ${oc.policyAction.toUpperCase()}`);
       console.log(`      Rule Rationale   : "${oc.policyReason}"`);
       console.log(`    • Action Executed  : ${oc.executedAction.toUpperCase()} (Policy Authority Maintained ✓)`);

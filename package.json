@@ -21,7 +21,10 @@
     "checkout:live": "npx tsx --tsconfig tsconfig.scripts.json scripts/create-live-checkout.ts",
     "demo": "npx tsx --tsconfig tsconfig.scripts.json scripts/run-demo.ts",
     "restore-baseline": "cp dev.db.locked-baseline dev.db",
-    "test:abandonment": "npx tsx --tsconfig tsconfig.scripts.json scripts/debug-abandonment.ts"
+    "test:abandonment": "npx tsx --tsconfig tsconfig.scripts.json scripts/debug-abandonment.ts",
+    "test:advisory-unavailable": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-advisory-unavailable.ts",
+    "test:demo-isolation": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-demo-baseline-isolation.ts",
+    "test:provider-attribution": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-provider-attribution.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",
@@ -30,6 +33,9 @@
     "@prisma/adapter-better-sqlite3": "^7.10.0",
     "@prisma/client": "^7.10.0",
     "@radix-ui/react-slot": "^1.3.3",
+    "@react-three/drei": "^10.7.8",
+    "@react-three/fiber": "^9.7.0",
+    "@types/three": "^0.185.4",
     "better-sqlite3": "^13.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -40,7 +46,8 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "recharts": "^3.10.1",
-    "tailwind-merge": "^3.6.0"
+    "tailwind-merge": "^3.6.0",
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",

@@ -10,7 +10,16 @@
  * Features:
  *  - Mandatory HMAC-SHA256 signature verification via Razorpay SDK helper
  *  - Idempotent processing via unique Razorpay eventId in AuditLog
- *  - Fast 200 response to prevent webhook retries
+ *
+ * Response contract (deliberate — Razorpay retries on non-2xx):
+ *  - 200 for outcomes that are settled and must NOT be retried: successful
+ *    processing, a duplicate event already in the ledger, and a validly-signed
+ *    event with no matching transaction (nothing to do, retrying won't help).
+ *  - 400 for a missing/invalid signature or missing secret — unauthenticated,
+ *    so it is rejected outright rather than acknowledged.
+ *  - 500 for a validly-signed, new event that failed mid-processing. This is
+ *    intentional: it asks Razorpay to redeliver so the event is not silently
+ *    lost, and the eventId idempotency guard makes redelivery safe.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -113,7 +122,9 @@ export async function POST(req: NextRequest) {
       console.warn(
         `[Webhook] No matching transaction found for externalId: ${externalId}, txId: ${customTxId}`,
       );
-      // Still log to audit log to record receipt
+      // Receipt is recorded to the server log only. AuditLog.transactionId is a
+      // required foreign key, so an unmatched event has nothing to attach a row
+      // to. Acknowledged with 200 because redelivery would fail identically.
       return NextResponse.json(
         { status: 'ok', message: 'No matching transaction in system' },
         { status: 200 },

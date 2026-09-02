@@ -28,6 +28,11 @@ model Transaction {
   recovered                   Boolean   @default(false)
   expectedRecoveryOutcome     String    // 'recovers_on_retry' | 'recovers_on_nudge' | 'requires_approval_then_recovers' | 'never_recovers'
   simulatedRecoveryAmountPaise Int?     // null if never_recovers
+  // Marks a transaction created purely to demonstrate live execution (dashboard
+  // demo buttons, resilience tests). Deliberately EXCLUDED from the headline
+  // benchmark metrics so a live demo can never inflate or degrade the frozen
+  // 65-transaction baseline. Audit rows for these ARE still shown in the ledger.
+  isDemoArtifact              Boolean   @default(false)
 
   auditLogs AuditLog[]
 }
@@ -36,10 +41,12 @@ model AuditLog {
   id            String      @id @default(cuid())
   transactionId String
   eventId       String      @unique // idempotency key
-  actor         String      // 'claude_agent' | 'policy_engine' | 'action_executor' | 'system' | 'policy_engine_override' | 'claude_agent+policy_engine'
+  actor         String      // 'ai_agent' | 'policy_engine' | 'action_executor' | 'system' | 'webhook' | 'policy_engine_override' | 'ai_agent+policy_engine'. Historical rows also carry 'claude_agent+policy_engine' (see lib/audit-logger.ts).
   action        String
   reason        String
   result        String
+  provider      String?     // AI provider that produced the advisory recommendation (e.g. 'Google Gemini'). NULL on rows written before provider instrumentation existed — deliberately not backfilled.
+  model         String?     // Exact model id (e.g. 'gemini-3.5-flash-lite'). NULL on pre-instrumentation rows.
   policyVersion String      @default("v1")
   timestamp     DateTime    @default(now())
 

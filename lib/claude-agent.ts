@@ -24,6 +24,61 @@ export type ClaudeRecommendation = {
   provider: string;
 };
 
+// Default model ids per provider. Declared once so recommendAction() and
+// describeConfiguredProviders() can never disagree about what will actually run.
+const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite';
+const FALLBACK_GEMINI_MODEL = 'gemini-3.5-flash';
+const DEFAULT_ANTHROPIC_MODEL = 'claude-3-5-haiku-latest';
+const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini';
+
+export const PROVIDER_GEMINI = 'Google Gemini';
+export const PROVIDER_ANTHROPIC = 'Anthropic Claude';
+export const PROVIDER_OPENAI = 'OpenAI GPT';
+
+/**
+ * Whether an API key env var holds a real, usable credential.
+ *
+ * Rejects blank values and the `your_...` placeholders shipped in .env.example.
+ * An unsubstituted placeholder must NOT count as a configured provider: doing so
+ * makes pre-flight pass, then every call fails at request time with a generic
+ * "API calls failed" error, when the honest diagnosis is "no key was set".
+ *
+ * Shared by describeConfiguredProviders() and recommendAction() so the rule is
+ * identical on both paths.
+ */
+function isUsableKey(key: string | undefined): key is string {
+  return Boolean(key) && key!.trim() !== '' && !key!.includes('your_');
+}
+
+/**
+ * Reports which providers are configured right now, in the exact order
+ * recommendAction() will attempt them. Callers use this instead of naming a
+ * provider themselves, so console banners and pre-flight checks describe the
+ * real runtime chain rather than a hardcoded assumption.
+ *
+ * Key-presence tests mirror recommendAction() exactly — keep them in step.
+ */
+export function describeConfiguredProviders(): Array<{ provider: string; model: string }> {
+  const chain: Array<{ provider: string; model: string }> = [];
+
+  const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (isUsableKey(geminiKey)) {
+    chain.push({ provider: PROVIDER_GEMINI, model: process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL });
+  }
+
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (isUsableKey(anthropicKey)) {
+    chain.push({ provider: PROVIDER_ANTHROPIC, model: process.env.ANTHROPIC_MODEL || DEFAULT_ANTHROPIC_MODEL });
+  }
+
+  const openaiKey = process.env.OPENAI_API_KEY;
+  if (isUsableKey(openaiKey)) {
+    chain.push({ provider: PROVIDER_OPENAI, model: process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL });
+  }
+
+  return chain;
+}
+
 const SYSTEM_PROMPT = `You are RecoverAI's Chief Recovery Agent for Indian eCommerce & SaaS payments.
 Analyze the provided transaction context and recommend the best intervention strategy.
 
@@ -104,10 +159,10 @@ export async function recommendAction(
 
   // 1. Google Gemini (Primary high-speed live model)
   const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-  if (geminiKey && geminiKey.trim() !== '') {
+  if (isUsableKey(geminiKey)) {
     const candidateModels = [
-      process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
-      'gemini-3.5-flash',
+      process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL,
+      FALLBACK_GEMINI_MODEL,
     ];
 
     const genAI = new GoogleGenerativeAI(geminiKey);
@@ -132,7 +187,7 @@ export async function recommendAction(
             reasoning: parsed.reasoning,
             isRealApi: true,
             model: modelName,
-            provider: 'Google Gemini',
+            provider: PROVIDER_GEMINI,
           };
           inferenceCache.set(cacheKey, rec);
           return rec;
@@ -156,9 +211,9 @@ export async function recommendAction(
 
   // 2. Anthropic Claude
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  if (anthropicKey && anthropicKey.trim() !== '' && !anthropicKey.includes('your_')) {
+  if (isUsableKey(anthropicKey)) {
     try {
-      const model = process.env.ANTHROPIC_MODEL || 'claude-3-5-haiku-latest';
+      const model = process.env.ANTHROPIC_MODEL || DEFAULT_ANTHROPIC_MODEL;
       const workspaceId = process.env.ANTHROPIC_WORKSPACE_ID;
       const anthropic = new Anthropic({
         apiKey: anthropicKey,
@@ -181,12 +236,12 @@ export async function recommendAction(
         reasoning: parsed.reasoning,
         isRealApi: true,
         model,
-        provider: 'Anthropic Claude',
+        provider: PROVIDER_ANTHROPIC,
       };
       inferenceCache.set(cacheKey, rec);
       return rec;
     } catch (err: any) {
-      if (!process.env.OPENAI_API_KEY) {
+      if (!isUsableKey(process.env.OPENAI_API_KEY)) {
         throw new Error(`Anthropic API failed (${err?.message || err}).`);
       }
     }
@@ -194,8 +249,8 @@ export async function recommendAction(
 
   // 3. OpenAI
   const openaiKey = process.env.OPENAI_API_KEY;
-  if (openaiKey && openaiKey.trim() !== '') {
-    const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  if (isUsableKey(openaiKey)) {
+    const model = process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL;
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -221,7 +276,7 @@ export async function recommendAction(
       reasoning: parsed.reasoning,
       isRealApi: true,
       model,
-      provider: 'OpenAI GPT',
+      provider: PROVIDER_OPENAI,
     };
     inferenceCache.set(cacheKey, rec);
     return rec;

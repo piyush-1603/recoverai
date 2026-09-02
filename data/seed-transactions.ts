@@ -9,9 +9,9 @@
  * Designed Scenarios:
  *  1. VIP auto-retries with up to 3 retry limit tolerance.
  *  2. Designed AI Recommendation vs Policy Conflict Edge-Cases:
- *     - Flagged Risk Code on VIP / High-Value (Claude: auto_retry -> Policy: stop_unrecoverable)
- *     - Large Subscription > ₹15k AFA (Claude: auto_retry -> Policy: request_approval)
- *     - Premature Cart Abandonment < 1h (Claude: send_nudge -> Policy: no_action)
+ *     - Flagged Risk Code on VIP / High-Value (AI: auto_retry -> Policy: stop_unrecoverable)
+ *     - Large Subscription > ₹15k AFA (AI: auto_retry -> Policy: request_approval)
+ *     - Premature Cart Abandonment < 1h (AI: send_nudge -> Policy: no_action)
  *
  * Run via: npm run seed  OR  npx tsx --tsconfig tsconfig.scripts.json data/seed-transactions.ts
  */

@@ -12,7 +12,13 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
+    // Headline metrics are computed over the benchmark set ONLY. Demo artifacts
+    // (created by the dashboard demo buttons and resilience tests) are excluded
+    // so a live trigger can never inflate or degrade the frozen baseline figures.
+    // Their audit rows are still returned below — that ledger entry is the proof
+    // of real execution; the metric cards stay a stable benchmark.
     const transactions = await prisma.transaction.findMany({
+      where: { isDemoArtifact: false },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -22,7 +28,7 @@ export async function GET() {
     });
 
     const exceptions = await prisma.transaction.findMany({
-      where: { status: 'unrecoverable' },
+      where: { status: 'unrecoverable', isDemoArtifact: false },
       orderBy: { createdAt: 'desc' },
     });
 

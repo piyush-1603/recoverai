@@ -2,8 +2,9 @@
  * /scripts/run-policy-check.ts
  *
  * Simulates policy diagnosis and execution across all seeded transactions.
- * Includes sequential Claude AI reasoning, policy authority verification,
- * and detailed AI vs Policy override reporting.
+ * Includes sequential live AI advisory reasoning (provider resolved at runtime
+ * by lib/claude-agent.ts), policy authority verification, and detailed
+ * AI vs Policy override reporting.
  *
  * Run via: npm run policy-check  OR  npx tsx --tsconfig tsconfig.scripts.json scripts/run-policy-check.ts
  */
@@ -11,9 +12,9 @@
 import 'dotenv/config';
 import { prisma } from '../lib/prisma';
 import { diagnoseAndDecide } from '../lib/policy-engine';
-import { recommendAction } from '../lib/claude-agent';
-import { executeAction } from '../lib/action-executor';
-import { writeEvent } from '../lib/audit-logger';
+import { recommendAction, describeConfiguredProviders } from '../lib/claude-agent';
+import { executeAction, auditReasonSuffix } from '../lib/action-executor';
+import { writeEvent, describeAdvisor } from '../lib/audit-logger';
 
 function rupees(paise: number): string {
   return `₹${(paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
@@ -92,8 +93,17 @@ async function runPolicyCheck() {
   console.log(bar('Standard Max Retries', `${policyConfig.standardMaxRetries ?? 1} attempt`));
   console.log(bar('Nudge Window', `${policyConfig.nudgeWindowStartHour}:00 – ${policyConfig.nudgeWindowEndHour}:00 IST`));
   console.log(bar('Current Evaluation Hour', `${currentHour}:00 IST`));
+  const providerChain = describeConfiguredProviders();
+  console.log(
+    bar(
+      'AI Advisory Chain',
+      providerChain.length
+        ? providerChain.map((p) => `${p.provider} (${p.model})`).join(' → ')
+        : 'none configured',
+    ),
+  );
 
-  // 3. Process Transactions Sequentially with Claude Agent
+  // 3. Process Transactions Sequentially with the live AI advisory layer
   type ActionBucket = {
     count: number;
     totalAmountPaise: number;
@@ -115,8 +125,9 @@ async function runPolicyCheck() {
     externalPaymentId: string | null;
     customerTier: string;
     amountPaise: number;
-    claudeAction: string;
-    claudeReasoning: string;
+    aiAction: string;
+    aiReasoning: string;
+    advisor: string;
     policyAction: string;
     policyReason: string;
     executedAction: string;
@@ -128,30 +139,41 @@ async function runPolicyCheck() {
   let aiMatchedCount = 0;
   let aiOverriddenCount = 0;
 
+  // Provider/model combinations that actually answered, tallied from live responses.
+  const observedAdvisors = new Map<string, number>();
+
   for (const tx of allDbTransactions) {
     totalAtRiskPaise += tx.amountPaise;
 
-    // Step A: Claude AI Advisory Recommendation
-    const claudeRec = await recommendAction(tx as any, policyConfig);
+    // Step A: Live AI Advisory Recommendation (provider resolved at runtime)
+    const aiRec = await recommendAction(tx as any, policyConfig);
+    const advisorKey = `${aiRec.provider} (${aiRec.model})`;
+    observedAdvisors.set(advisorKey, (observedAdvisors.get(advisorKey) ?? 0) + 1);
+    const advisor = describeAdvisor(aiRec.provider, aiRec.model);
 
     // Step B: Pure Deterministic Policy Diagnosis (Authoritative)
     const policyDecision = diagnoseAndDecide(tx as any, policyConfig, currentHour);
 
-    const isMatch = claudeRec.recommendedAction === policyDecision.action;
+    const isMatch = aiRec.recommendedAction === policyDecision.action;
 
     // Step C: Action Execution (Only Policy Engine decision is executed)
     const result = await executeAction(policyDecision, tx, 'simulate');
+    // Empty on the simulate path; carries the real API error if a live call ever
+    // fails here, so the executor's note can never be silently dropped.
+    const executorNote = auditReasonSuffix(result);
 
     if (isMatch) {
       aiMatchedCount++;
       await writeEvent(
         tx.id,
-        'claude_agent+policy_engine',
+        'ai_agent+policy_engine',
         policyDecision.action,
-        `Claude recommended "${claudeRec.recommendedAction}" (${claudeRec.reasoning}) — Confirmed by policy: ${policyDecision.reason}`,
+        `${advisor} recommended "${aiRec.recommendedAction}" (${aiRec.reasoning}) — Confirmed by policy: ${policyDecision.reason}${executorNote}`,
         result.outcome,
         undefined,
         policyDecision.policyVersion,
+        aiRec.provider,
+        aiRec.model,
       );
     } else {
       aiOverriddenCount++;
@@ -159,10 +181,12 @@ async function runPolicyCheck() {
         tx.id,
         'policy_engine_override',
         'override',
-        `Claude recommended "${claudeRec.recommendedAction}" (${claudeRec.reasoning}) but policy engine enforced "${policyDecision.action}" per rule: ${policyDecision.reason}`,
+        `${advisor} recommended "${aiRec.recommendedAction}" (${aiRec.reasoning}) but policy engine enforced "${policyDecision.action}" per rule: ${policyDecision.reason}${executorNote}`,
         'ai_recommendation_overridden',
         undefined,
         policyDecision.policyVersion,
+        aiRec.provider,
+        aiRec.model,
       );
 
       overriddenCases.push({
@@ -170,8 +194,9 @@ async function runPolicyCheck() {
         externalPaymentId: tx.externalPaymentId,
         customerTier: tx.customerTier,
         amountPaise: tx.amountPaise,
-        claudeAction: claudeRec.recommendedAction,
-        claudeReasoning: claudeRec.reasoning,
+        aiAction: aiRec.recommendedAction,
+        aiReasoning: aiRec.reasoning,
+        advisor: advisorKey,
         policyAction: policyDecision.action,
         policyReason: policyDecision.reason,
         executedAction: policyDecision.action,
@@ -214,6 +239,12 @@ async function runPolicyCheck() {
   console.log(hr('─'));
   console.log(
     bar(
+      'Served By (observed)',
+      Array.from(observedAdvisors.entries()).map(([a, c]) => `${c}× ${a}`).join(', ') || 'none',
+    ),
+  );
+  console.log(
+    bar(
       'AI Recommendations',
       `${allDbTransactions.length} total, ${aiMatchedCount} matched policy, ${aiOverriddenCount} overridden by policy engine`,
     ),
@@ -224,8 +255,8 @@ async function runPolicyCheck() {
     for (let i = 0; i < overriddenCases.length; i++) {
       const oc = overriddenCases[i];
       console.log(`  [Override #${i + 1}] ${(oc.externalPaymentId || oc.transactionId).padEnd(26)} ${rupees(oc.amountPaise).padStart(12)}  [Tier: ${oc.customerTier.toUpperCase()}]`);
-      console.log(`    • Claude AI Wanted : ${oc.claudeAction.toUpperCase()}`);
-      console.log(`      Reasoning        : "${oc.claudeReasoning}"`);
+      console.log(`    • AI Wanted        : ${oc.aiAction.toUpperCase()} — via ${oc.advisor}`);
+      console.log(`      Reasoning        : "${oc.aiReasoning}"`);
       console.log(`    • Policy Enforced  : ${oc.policyAction.toUpperCase()}`);
       console.log(`      Rule Rationale   : "${oc.policyReason}"`);
       console.log(`    • Action Executed  : ${oc.executedAction.toUpperCase()} (Policy Authority Maintained ✓)`);

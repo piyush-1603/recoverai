@@ -6,14 +6,17 @@
  * Resets a single demo transaction to fresh failed state, executes policy diagnosis,
  * invokes real Razorpay Payment Link creation via action-executor, and writes an
  * immutable AuditLog entry with a live current timestamp.
+ *
+ * The AI advisory call is non-fatal: if every provider fails, the policy engine still
+ * decides, the action still executes, and the audit row records 'advisory_unavailable'.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { diagnoseAndDecide } from '@/lib/policy-engine';
-import { recommendAction } from '@/lib/claude-agent';
-import { executeAction } from '@/lib/action-executor';
-import { writeEvent } from '@/lib/audit-logger';
+import { recommendAction, ClaudeRecommendation } from '@/lib/claude-agent';
+import { executeAction, auditReasonSuffix } from '@/lib/action-executor';
+import { writeEvent, describeAdvisor } from '@/lib/audit-logger';
 
 export const dynamic = 'force-dynamic';
 
@@ -68,45 +71,63 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // The dashboard's compliance demo intentionally uses an insufficient-funds
-    // record and a caller-supplied off-window hour. Normal live triggers retain
-    // the current-time behavior below.
-    if (!targetTx && typeof reqBody.hourOverride === 'number') {
-      targetTx = await prisma.transaction.findFirst({
-        where: { reasonCode: 'insufficient_funds' },
-      });
-    }
-
+    // Dashboard demo buttons operate on DEDICATED demo artifacts, never on the
+    // frozen 65-transaction benchmark set. Previously both buttons grabbed a real
+    // baseline row and reset `recovered: false` on it, permanently degrading the
+    // headline recovered-revenue figure every time a demo was run. Demo artifacts
+    // are flagged `isDemoArtifact` and excluded from the headline metrics, so a
+    // live trigger proves real execution without touching the benchmark numbers.
+    //
+    // `source` and `reasonCode` deliberately mirror real records so the policy
+    // engine routes them through the exact same rules (it branches on `source`):
+    //   compliance -> customer / insufficient_funds  => nudge path, blocked off-window
+    //   live       -> gateway  / payment_timed_out   => transient auto_retry path
     if (!targetTx) {
-      // Find a gateway demo transaction or fallback
-      targetTx = await prisma.transaction.findFirst({
-        where: {
-          source: 'gateway',
-          reasonCode: { in: ['payment_timed_out', 'gateway_technical_error', 'bank_technical_error'] },
-        },
-      });
-    }
+      const isComplianceDemo = typeof reqBody.hourOverride === 'number';
+      const demoKey = isComplianceDemo ? 'pay_demo_compliance_01' : 'pay_demo_live_01';
 
-    if (!targetTx) {
-      // Create one if none exists
-      targetTx = await prisma.transaction.create({
-        data: {
-          externalPaymentId: `pay_live_demo_${Date.now()}`,
-          amountPaise: 49900,
+      const demoDefaults = isComplianceDemo
+        ? {
+            reasonCode: 'insufficient_funds',
+            source: 'customer',
+            expectedRecoveryOutcome: 'recovers_on_nudge',
+            customerId: 'cust_demo_compliance',
+          }
+        : {
+            reasonCode: 'payment_timed_out',
+            source: 'gateway',
+            expectedRecoveryOutcome: 'recovers_on_retry',
+            customerId: 'cust_demo_live',
+          };
+
+      // Reuse the same artifact across runs (stable externalPaymentId) so
+      // repeated demo clicks never accumulate rows.
+      targetTx = await prisma.transaction.upsert({
+        where: { externalPaymentId: demoKey },
+        update: {
           status: 'failed',
-          reasonCode: 'payment_timed_out',
-          source: 'gateway',
-          type: 'payment',
-          customerId: 'cust_live_demo_01',
           retryCount: 0,
           nudgeCount: 0,
           recovered: false,
-          expectedRecoveryOutcome: 'recovers_on_retry',
+          resolvedAt: null,
+          isDemoArtifact: true,
+        },
+        create: {
+          externalPaymentId: demoKey,
+          amountPaise: 49900,
+          status: 'failed',
+          type: 'payment',
+          customerTier: 'standard',
+          retryCount: 0,
+          nudgeCount: 0,
+          recovered: false,
           simulatedRecoveryAmountPaise: 49900,
+          isDemoArtifact: true,
+          ...demoDefaults,
         },
       });
     } else {
-      // Reset to clean fresh failed state
+      // Explicit id supplied (tests / targeted replays): reset to a clean failed state.
       targetTx = await prisma.transaction.update({
         where: { id: targetTx.id },
         data: {
@@ -137,8 +158,25 @@ export async function POST(req: NextRequest) {
       ? Math.max(0, Math.min(23, Math.floor(reqBody.hourOverride)))
       : parseInt(istHourStr, 10);
 
-    // 3. Claude AI Advisory Recommendation
-    const claudeRec = await recommendAction(targetTx as any, policyConfig);
+    // 3. AI Advisory Recommendation (provider resolved at runtime — see lib/claude-agent.ts)
+    //
+    // DELIBERATELY NON-FATAL. The policy engine is the sole decision authority and
+    // needs no AI input to act, so an advisory outage (rate limit, quota, network,
+    // bad key, every provider down) must never block real recovery execution. When
+    // the advisory layer is unavailable we still run the policy engine, still call
+    // Razorpay, and still write an audit row — the row just records honestly that
+    // no AI opinion was available rather than inventing one.
+    let aiRec: ClaudeRecommendation | null = null;
+    let advisoryError: string | null = null;
+    try {
+      aiRec = await recommendAction(targetTx as any, policyConfig);
+    } catch (advisoryFailure: any) {
+      advisoryError = advisoryFailure?.message || 'unknown advisory failure';
+      console.error(
+        '[DemoTrigger] AI advisory unavailable — proceeding on policy engine alone:',
+        advisoryError,
+      );
+    }
 
     // 4. Pure Policy Diagnosis (Authoritative)
     const decision = diagnoseAndDecide(targetTx as any, policyConfig, currentHour);
@@ -147,26 +185,53 @@ export async function POST(req: NextRequest) {
     const result = await executeAction(decision, targetTx, 'live');
 
     // 6. Write live audit log entry
-    const isMatch = claudeRec.recommendedAction === decision.action;
-    if (isMatch) {
+    //
+    // The reason text names the provider/model that actually answered, read off
+    // the recommendation object rather than written in by hand — so if the
+    // fallback chain engages, the ledger says so instead of claiming Gemini.
+    // `auditReasonSuffix` appends the executor's note when the live Razorpay
+    // call failed, so the actual API error lands in the row instead of being
+    // dropped on the floor.
+    const isMatch = aiRec ? aiRec.recommendedAction === decision.action : null;
+    const advisor = aiRec ? describeAdvisor(aiRec.provider, aiRec.model) : null;
+    const executorNote = auditReasonSuffix(result);
+    if (!aiRec) {
+      // Degraded path: no AI opinion existed, so this is neither a match nor an
+      // override. Provider/model stay NULL because no provider actually answered.
       await writeEvent(
         targetTx.id,
-        'claude_agent+policy_engine',
+        'policy_engine',
         decision.action,
-        `Claude recommended "${claudeRec.recommendedAction}" (${claudeRec.reasoning}) — Confirmed by policy: ${decision.reason}`,
+        `AI advisory unavailable (${advisoryError}) — policy engine independently enforced "${decision.action}" per rule: ${decision.reason}. Execution outcome: ${result.outcome}.${executorNote}`,
+        'advisory_unavailable',
+        undefined,
+        decision.policyVersion,
+        null,
+        null,
+      );
+    } else if (isMatch) {
+      await writeEvent(
+        targetTx.id,
+        'ai_agent+policy_engine',
+        decision.action,
+        `${advisor} recommended "${aiRec.recommendedAction}" (${aiRec.reasoning}) — Confirmed by policy: ${decision.reason}${executorNote}`,
         result.outcome,
         undefined,
         decision.policyVersion,
+        aiRec.provider,
+        aiRec.model,
       );
     } else {
       await writeEvent(
         targetTx.id,
         'policy_engine_override',
         'override',
-        `Claude recommended "${claudeRec.recommendedAction}" (${claudeRec.reasoning}) but policy engine enforced "${decision.action}" per rule: ${decision.reason}`,
+        `${advisor} recommended "${aiRec.recommendedAction}" (${aiRec.reasoning}) but policy engine enforced "${decision.action}" per rule: ${decision.reason}${executorNote}`,
         'ai_recommendation_overridden',
         undefined,
         decision.policyVersion,
+        aiRec.provider,
+        aiRec.model,
       );
     }
 
@@ -175,7 +240,9 @@ export async function POST(req: NextRequest) {
       transactionId: targetTx.id,
       externalPaymentId: targetTx.externalPaymentId,
       amountPaise: targetTx.amountPaise,
-      claudeRecommendation: claudeRec,
+      aiRecommendation: aiRec,
+      advisoryUnavailable: aiRec === null,
+      advisoryError,
       decision,
       result,
       isMatch,
