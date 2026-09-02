@@ -24,7 +24,8 @@
     "test:abandonment": "npx tsx --tsconfig tsconfig.scripts.json scripts/debug-abandonment.ts",
     "test:advisory-unavailable": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-advisory-unavailable.ts",
     "test:demo-isolation": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-demo-baseline-isolation.ts",
-    "test:provider-attribution": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-provider-attribution.ts"
+    "test:provider-attribution": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-provider-attribution.ts",
+    "test:p2p": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-p2p-workflow.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",

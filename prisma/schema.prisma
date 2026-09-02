@@ -64,3 +64,48 @@ model PolicyConfig {
   nudgeWindowStartHour  Int    @default(10)
   nudgeWindowEndHour    Int    @default(21)
 }
+
+// ─── Promise-to-Pay (P2P) Tracker ───────────────────────────────────────────
+// A customer commits: "I will pay ₹X at time T". The system durably schedules
+// a reminder 1 hour before T, triggers payment collection at T, and escalates
+// to human AR if the promise is broken.
+model PromiseToPay {
+  id                    String    @id @default(cuid())
+  customerId            String
+  transactionId         String?   // optional reference to the original failed transaction
+  amountPaise           Int       // e.g. 149900 = ₹1,499.00
+  promisedPaymentTime   DateTime  // when the customer committed to pay
+  status                String    @default("pending") // pending | reminder_sent | processing | completed | failed_escalated | cancelled
+  paymentLinkId         String?   // Razorpay Payment Link ID
+  paymentLinkUrl        String?   // short URL sent to customer
+  crmTaskId             String?   // CRM ticket/task ID if escalated to human AR
+  reminderSentAt        DateTime? // when the 1-hr-prior reminder was dispatched
+  resolvedAt            DateTime?
+  failureReason         String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  auditLogs P2PAuditLog[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([promisedPaymentTime])
+}
+
+// Standalone audit ledger for P2P events — decoupled from Transaction FK
+// so P2P commitments that aren't linked to an existing failed transaction
+// can still be fully audit-trailed.
+model P2PAuditLog {
+  id        String   @id @default(cuid())
+  p2pId     String
+  eventId   String   @unique // idempotency key
+  action    String   // p2p_created | p2p_reminder_sent | p2p_collection_triggered | p2p_completed | p2p_escalated | p2p_cancelled
+  detail    String   // human-readable description of what happened
+  result    String   // outcome label
+  timestamp DateTime @default(now())
+
+  p2p PromiseToPay @relation(fields: [p2pId], references: [id])
+
+  @@index([p2pId])
+}
+
