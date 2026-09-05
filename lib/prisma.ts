@@ -88,15 +88,26 @@ function createPrismaClient(): PrismaClient {
   return new PrismaClient({ adapter } as any);
 }
 
-// Singleton pattern — reuse in dev to avoid exhausting connections
+// Lazy singleton — the client is NOT created at module evaluation time.
+// Next.js/Turbopack traces this file during build but never calls `createPrismaClient()`
+// until an actual API request property-accesses `prisma` at runtime.
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
-export const prisma = globalForPrisma.prisma ?? createPrismaClient();
-
-if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.prisma = prisma;
+function getClient(): PrismaClient {
+  if (!globalForPrisma.prisma) {
+    globalForPrisma.prisma = createPrismaClient();
+  }
+  return globalForPrisma.prisma;
 }
+
+// Proxy forwards every property/method access to the lazily-created real client.
+export const prisma = new Proxy({} as PrismaClient, {
+  get(_target, prop) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (getClient() as unknown as Record<string | symbol, unknown>)[prop as string];
+  },
+});
 
 export default prisma;
