@@ -41,7 +41,13 @@ yarn-error.log*
 next-env.d.ts
 
 # sqlite
-*.db*
+*.db
+*.db-wal
+*.db-shm
+*.preschema
+*.pre-regen-backup
+prisma/*.locked-baseline
+!dev.db.locked-baseline
 
 # local ide
 .claude/

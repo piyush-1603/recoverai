@@ -37,7 +37,7 @@ RecoverAI is architected as two independent services:
 2. Log in to [Render.com](https://render.com) and click **New > Blueprint**.
 3. Select your repository. Render will automatically detect [`render.yaml`](./render.yaml).
 4. Or manually create a **Web Service**:
-   - **Build Command**: `npm ci && npx prisma generate && if [ ! -f dev.db ]; then cp dev.db.locked-baseline dev.db; fi`
+   - **Build Command**: `npm ci && npx prisma generate && if [ -f dev.db.locked-baseline ]; then cp dev.db.locked-baseline dev.db; else npx prisma db push --skip-generate && npm run seed; fi`
    - **Start Command**: `npm run start:backend`
    - **Environment Variables**:
      - `PORT`: `4000`

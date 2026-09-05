@@ -4,7 +4,7 @@ services:
     name: recoverai-backend
     env: node
     plan: starter
-    buildCommand: npm ci && npx prisma generate && if [ ! -f dev.db ]; then cp dev.db.locked-baseline dev.db; fi
+    buildCommand: npm ci && npx prisma generate && if [ -f dev.db.locked-baseline ]; then cp dev.db.locked-baseline dev.db; else npx prisma db push --skip-generate && npm run seed; fi
     startCommand: npm run start:backend
     envVars:
       - key: PORT
