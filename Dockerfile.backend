@@ -1,0 +1,49 @@
+# ==============================================================================
+# RecoverAI Dedicated Backend Service Dockerfile
+# ==============================================================================
+
+FROM node:20-bookworm-slim AS base
+
+WORKDIR /app
+
+# Install build tools required for native C++ better-sqlite3 bindings
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    make \
+    g++ \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy package descriptors
+COPY package*.json ./
+COPY prisma.config.ts ./
+COPY prisma ./prisma/
+
+# Install all dependencies and generate Prisma client
+RUN npm ci
+RUN npx prisma generate
+
+# Copy application source code
+COPY tsconfig*.json ./
+COPY server ./server
+COPY lib ./lib
+COPY app/api ./app/api
+COPY data ./data
+
+# Seed SQLite database from locked baseline if dev.db does not exist
+COPY dev.db.locked-baseline ./dev.db.locked-baseline
+RUN cp dev.db.locked-baseline dev.db
+
+# Expose default backend port
+ENV PORT=4000
+ENV NODE_ENV=production
+ENV DATABASE_URL="file:./dev.db"
+
+EXPOSE 4000
+
+# Health check
+HEALTHCHECK --interval=15s --timeout=5s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:4000/api/health || exit 1
+
+# Start the dedicated backend service
+CMD ["npm", "run", "start:backend"]

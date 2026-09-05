@@ -1,0 +1,52 @@
+# ==============================================================================
+# RecoverAI Frontend UI Service Dockerfile
+# ==============================================================================
+
+FROM node:20-bookworm-slim AS base
+
+WORKDIR /app
+
+# Install dependencies required for building native bindings if referenced
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    make \
+    g++ \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy package descriptors and prisma schema
+COPY package*.json ./
+COPY prisma.config.ts ./
+COPY prisma ./prisma/
+
+# Install dependencies and generate types
+RUN npm ci
+RUN npx prisma generate
+
+# Copy frontend source code and configs
+COPY tsconfig*.json ./
+COPY next.config.ts ./
+COPY public ./public
+COPY app ./app
+COPY lib ./lib
+COPY components ./components
+
+# Dummy database file for build step analysis if needed
+COPY dev.db.locked-baseline ./dev.db.locked-baseline
+RUN cp dev.db.locked-baseline dev.db
+
+# Build the Next.js application
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN npm run build
+
+# Expose Next.js frontend port
+ENV PORT=3000
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=20s --timeout=5s --start-period=10s --retries=3 \
+  CMD curl -f http://localhost:3000/dashboard || exit 1
+
+# Start Next.js frontend production server
+CMD ["npm", "run", "start:frontend"]

@@ -1,0 +1,52 @@
+services:
+  # ── RecoverAI Backend Service (Render) ──
+  - type: web
+    name: recoverai-backend
+    env: node
+    plan: starter
+    buildCommand: npm ci && npx prisma generate && if [ ! -f dev.db ]; then cp dev.db.locked-baseline dev.db; fi
+    startCommand: npm run start:backend
+    envVars:
+      - key: PORT
+        value: 4000
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        value: file:./dev.db
+      - key: DEMO_TRIGGER_SECRET
+        generateValue: true
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
+    disk:
+      name: recoverai-sqlite-disk
+      mountPath: /app/prisma
+      sizeGB: 1
+
+  # ── RecoverAI Frontend Service (Render) ──
+  - type: web
+    name: recoverai-frontend
+    env: node
+    plan: starter
+    buildCommand: npm ci && npx prisma generate && npm run build
+    startCommand: npm run start:frontend
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: NODE_ENV
+        value: production
+      - key: BACKEND_API_URL
+        fromService:
+          type: web
+          name: recoverai-backend
+          property: host
+      - key: DEMO_TRIGGER_SECRET
+        fromService:
+          type: web
+          name: recoverai-backend
+          envVarKey: DEMO_TRIGGER_SECRET
