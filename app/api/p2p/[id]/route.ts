@@ -7,13 +7,16 @@
  * PATCH  /api/p2p/:id           — Update P2P status (cancel, mark completed)
  */
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getP2PById, cancelP2P, completeP2P } from '@/lib/p2p-engine';
+import { proxyOrNull } from '@/lib/proxy-or-handle';
 
 export async function GET(
-  _req: Request,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const proxy = await proxyOrNull(req);
+  if (proxy) return proxy;
   try {
     const { id } = await params;
     const record = await getP2PById(id);
@@ -30,9 +33,11 @@ export async function GET(
 }
 
 export async function PATCH(
-  req: Request,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const proxy = await proxyOrNull(req);
+  if (proxy) return proxy;
   try {
     const { id } = await params;
     const body = await req.json();

@@ -23,6 +23,8 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { MESSAGING_COST_PAISE } from '@/lib/action-executor';
 
+import { proxyOrNull } from '@/lib/proxy-or-handle';
+
 export const dynamic = 'force-dynamic';
 
 /**
@@ -148,7 +150,9 @@ function paymentIdFromLog(log: { razorpayEntityId: string | null; reason: string
   return log.reason?.match(/\((pay_[^)]+)\)/)?.[1] ?? null;
 }
 
-export async function GET() {
+export async function GET(req: import('next/server').NextRequest) {
+  const proxy = await proxyOrNull(req);
+  if (proxy) return proxy;
   try {
     const [benchmarkTx, demoTx, auditLogs, exceptions] = await Promise.all([
       prisma.transaction.findMany({

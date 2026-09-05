@@ -16,10 +16,13 @@
  * durable execution model, but without the infrastructure overhead.
  */
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { processDueP2Ps } from '@/lib/p2p-engine';
+import { proxyOrNull } from '@/lib/proxy-or-handle';
 
-export async function POST() {
+export async function POST(req: NextRequest) {
+  const proxy = await proxyOrNull(req);
+  if (proxy) return proxy;
   try {
     const result = await processDueP2Ps();
 

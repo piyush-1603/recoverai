@@ -20,6 +20,7 @@ import { executeAction, auditReasonSuffix } from '@/lib/action-executor';
 import { writeEvent, describeAdvisor, type AuditMetadata } from '@/lib/audit-logger';
 
 export const dynamic = 'force-dynamic';
+import { proxyOrNull } from '@/lib/proxy-or-handle';
 
 const RATE_LIMIT_MAX_CALLS = 10;
 const RATE_LIMIT_WINDOW_MS = 60_000;
@@ -44,6 +45,8 @@ export function setDemoTriggerRateLimitForTests(callCount: number, windowStarted
 }
 
 export async function POST(req: NextRequest) {
+  const proxy = await proxyOrNull(req);
+  if (proxy) return proxy;
   const demoTriggerSecret = process.env.DEMO_TRIGGER_SECRET;
   if (!demoTriggerSecret || req.headers.get('x-demo-secret') !== demoTriggerSecret) {
     return NextResponse.json({ error: 'Unauthorized demo trigger request' }, { status: 401 });

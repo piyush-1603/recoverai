@@ -7,14 +7,17 @@
  * GET  /api/p2p  — List all P2P records (optionally filtered by customerId)
  */
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import {
   createP2P,
   getAllP2Ps,
   getP2PsByCustomer,
 } from '@/lib/p2p-engine';
+import { proxyOrNull } from '@/lib/proxy-or-handle';
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const proxy = await proxyOrNull(req);
+  if (proxy) return proxy;
   try {
     const body = await req.json();
     const { customerId, promisedPaymentTime, transactionAmount, transactionId } = body;
@@ -70,7 +73,9 @@ export async function POST(req: Request) {
   }
 }
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
+  const proxy = await proxyOrNull(req);
+  if (proxy) return proxy;
   try {
     const url = new URL(req.url);
     const customerId = url.searchParams.get('customerId');

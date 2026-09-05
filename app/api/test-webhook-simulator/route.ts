@@ -20,8 +20,11 @@ import { prisma } from '@/lib/prisma';
 import { POST as executeWebhook } from '@/app/api/webhook/route';
 
 export const dynamic = 'force-dynamic';
+import { proxyOrNull } from '@/lib/proxy-or-handle';
 
 export async function POST(request: NextRequest) {
+  const proxy = await proxyOrNull(request);
+  if (proxy) return proxy;
   try {
     let reqBody: {
       transactionId?: string;

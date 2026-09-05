@@ -145,7 +145,11 @@ function resolveEventId(req: NextRequest, payload: any, rawBody: string): string
   return `evt_sha_${crypto.createHash('sha256').update(rawBody).digest('hex').slice(0, 40)}`;
 }
 
+import { proxyOrNull } from '@/lib/proxy-or-handle';
+
 export async function POST(req: NextRequest) {
+  const proxy = await proxyOrNull(req);
+  if (proxy) return proxy;
   try {
     const rawBody = await req.text();
     const signature = req.headers.get('x-razorpay-signature');
