@@ -25,10 +25,7 @@ export type { PrismaClient };
 export const SQLITE_BUSY_TIMEOUT_MS = 5000;
 
 function getDbPath(): string {
-  const url = process.env.DATABASE_URL;
-  if (!url) {
-    throw new Error('DATABASE_URL environment variable is not set');
-  }
+  const url = process.env.DATABASE_URL || 'file:./dev.db';
   // DATABASE_URL format: "file:./dev.db"
   // better-sqlite3 wants an absolute or relative file path
   const filePart = url.replace(/^file:/, '');
