@@ -4,7 +4,20 @@ services:
     name: recoverai-backend
     env: node
     plan: starter
-    buildCommand: npm ci && npx prisma generate && if [ -f dev.db.locked-baseline ]; then cp dev.db.locked-baseline dev.db; else npx prisma db push --skip-generate && npm run seed; fi
+    buildCommand: >
+      npm ci &&
+      npx prisma generate &&
+      mkdir -p /app/prisma &&
+      if [ -f /app/prisma/dev.db ]; then
+        echo "Existing DB found on disk, skipping seed";
+      elif [ -f dev.db.locked-baseline ]; then
+        cp dev.db.locked-baseline /app/prisma/dev.db &&
+        echo "Copied baseline DB to persistent disk";
+      else
+        DATABASE_URL="file:/app/prisma/dev.db" npx prisma db push --skip-generate &&
+        DATABASE_URL="file:/app/prisma/dev.db" npm run seed &&
+        echo "Fresh DB seeded";
+      fi
     startCommand: npm run start:backend
     envVars:
       - key: PORT
@@ -12,7 +25,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        value: file:./dev.db
+        value: file:/app/prisma/dev.db
       - key: DEMO_TRIGGER_SECRET
         generateValue: true
       - key: GEMINI_API_KEY
@@ -44,7 +57,7 @@ services:
         fromService:
           type: web
           name: recoverai-backend
-          property: host
+          property: hostHeaderValue
       - key: DEMO_TRIGGER_SECRET
         fromService:
           type: web
