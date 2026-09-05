@@ -1,8 +1,6 @@
 'use server';
 
 import { NextRequest } from 'next/server';
-import { POST as executeDemoTrigger } from '@/app/api/demo-trigger/route';
-import { POST as executeWebhookSimulator } from '@/app/api/test-webhook-simulator/route';
 
 const backendUrl = process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -10,7 +8,7 @@ export async function triggerDashboardDemo(kind: 'live' | 'compliance') {
   const secret = process.env.DEMO_TRIGGER_SECRET;
   if (!secret) throw new Error('Demo trigger is not configured on this server.');
 
-  // If running in decoupled mode with a separate backend service
+  // Decoupled mode: proxy to the dedicated backend service
   if (backendUrl) {
     const res = await fetch(`${backendUrl.replace(/\/$/, '')}/api/demo-trigger`, {
       method: 'POST',
@@ -25,7 +23,9 @@ export async function triggerDashboardDemo(kind: 'live' | 'compliance') {
     return payload;
   }
 
-  // Fallback to in-process execution in monolithic mode
+  // Monolithic mode: load route handler dynamically so better-sqlite3 is never
+  // statically bundled on the Vercel frontend build (which has no DATABASE_URL).
+  const { POST: executeDemoTrigger } = await import('@/app/api/demo-trigger/route');
   const request = new NextRequest('http://internal/api/demo-trigger', {
     method: 'POST',
     headers: {
@@ -36,7 +36,6 @@ export async function triggerDashboardDemo(kind: 'live' | 'compliance') {
   });
   const response = await executeDemoTrigger(request);
   const payload = await response.json();
-
   if (!response.ok) throw new Error(payload.error || 'Demo trigger failed.');
   return payload;
 }
@@ -46,7 +45,7 @@ export async function simulateWebhookPayment(options?: {
   externalPaymentId?: string;
   event?: string;
 }) {
-  // If running in decoupled mode with a separate backend service
+  // Decoupled mode: proxy to the dedicated backend service
   if (backendUrl) {
     const res = await fetch(`${backendUrl.replace(/\/$/, '')}/api/test-webhook-simulator`, {
       method: 'POST',
@@ -60,7 +59,8 @@ export async function simulateWebhookPayment(options?: {
     return payload;
   }
 
-  // Fallback to in-process execution in monolithic mode
+  // Monolithic mode: dynamic import to avoid bundling the DB stack at build time.
+  const { POST: executeWebhookSimulator } = await import('@/app/api/test-webhook-simulator/route');
   const request = new NextRequest('http://internal/api/test-webhook-simulator', {
     method: 'POST',
     headers: {
@@ -70,8 +70,6 @@ export async function simulateWebhookPayment(options?: {
   });
   const response = await executeWebhookSimulator(request);
   const payload = await response.json();
-
   if (!response.ok) throw new Error(payload.error || 'Webhook simulation failed.');
   return payload;
 }
-
