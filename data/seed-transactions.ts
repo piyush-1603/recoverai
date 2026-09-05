@@ -331,17 +331,17 @@ export async function seedDatabase() {
   // 5. Grouped Distributions
   const allTxs = await prisma.transaction.findMany();
 
-  const byTier = allTxs.reduce<Record<string, number>>((acc, tx) => {
+  const byTier = allTxs.reduce<Record<string, number>>((acc: Record<string, number>, tx: any) => {
     acc[tx.customerTier] = (acc[tx.customerTier] || 0) + 1;
     return acc;
   }, {});
 
-  const bySource = allTxs.reduce<Record<string, number>>((acc, tx) => {
+  const bySource = allTxs.reduce<Record<string, number>>((acc: Record<string, number>, tx: any) => {
     acc[tx.source] = (acc[tx.source] || 0) + 1;
     return acc;
   }, {});
 
-  const byType = allTxs.reduce<Record<string, number>>((acc, tx) => {
+  const byType = allTxs.reduce<Record<string, number>>((acc: Record<string, number>, tx: any) => {
     acc[tx.type] = (acc[tx.type] || 0) + 1;
     return acc;
   }, {});
@@ -349,8 +349,9 @@ export async function seedDatabase() {
   console.log('  📊 Grouped Counts:\n');
   console.log('  [By Customer Tier]');
   for (const [k, v] of Object.entries(byTier)) {
-    const pct = ((v / totalCount) * 100).toFixed(0);
-    console.log(`    • ${k.toUpperCase().padEnd(16)}: ${String(v).padStart(2)} records (${pct}%)`);
+    const numVal = Number(v);
+    const pct = ((numVal / totalCount) * 100).toFixed(0);
+    console.log(`    • ${k.toUpperCase().padEnd(16)}: ${String(numVal).padStart(2)} records (${pct}%)`);
   }
 
   console.log('\n  [By Type]');

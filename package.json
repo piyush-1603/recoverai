@@ -3,10 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "postinstall": "prisma generate",
     "dev": "next dev",
     "dev:frontend": "next dev",
     "dev:backend": "npx tsx server/server.ts",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "start:frontend": "next start",
     "start:backend": "npx tsx server/server.ts",

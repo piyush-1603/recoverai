@@ -160,7 +160,7 @@ export async function createPaymentLink(
             where: { externalPaymentId: { in: active.map((l: any) => l.id) } },
             select: { externalPaymentId: true },
           });
-          const usedSet = new Set(used.map((t) => t.externalPaymentId));
+          const usedSet = new Set(used.map((t: any) => t.externalPaymentId));
 
           const unassigned = active.filter((l: any) => !usedSet.has(l.id));
           const chosen =

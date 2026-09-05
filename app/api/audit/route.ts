@@ -362,9 +362,9 @@ export async function GET() {
       aiDriftStats,
       waterfallStats,
       liveStats,
-      complianceByRule: complianceByRule.map((row) => ({
+      complianceByRule: complianceByRule.map((row: any) => ({
         ruleId: row.ruleId,
-        count: row._count.ruleId,
+        count: row._count?.ruleId || 0,
       })),
       liveDemo,
       auditLogs,

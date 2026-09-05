@@ -40,11 +40,11 @@ async function runPolicyCheck() {
   });
 
   const isCountExact = totalCount === 65 || totalCount === 55;
-  const mutatedRetries = allDbTransactions.filter((t) => t.retryCount > 0);
-  const mutatedNudges = allDbTransactions.filter((t) => t.nudgeCount > 0);
-  const mutatedRecovered = allDbTransactions.filter((t) => t.recovered === true);
+  const mutatedRetries = allDbTransactions.filter((t: any) => t.retryCount > 0);
+  const mutatedNudges = allDbTransactions.filter((t: any) => t.nudgeCount > 0);
+  const mutatedRecovered = allDbTransactions.filter((t: any) => t.recovered === true);
   const invalidStatus = allDbTransactions.filter(
-    (t) => t.status !== 'failed' && t.status !== 'pending',
+    (t: any) => t.status !== 'failed' && t.status !== 'pending',
   );
 
   const isFresh =
