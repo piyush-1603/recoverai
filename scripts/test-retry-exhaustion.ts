@@ -134,13 +134,15 @@ async function runRetryExhaustionTest() {
 
     // Distinctness checks:
     const isStopUnrecoverable = pass2Decision.action === 'stop_unrecoverable';
-    const isRule4Reason = pass2Decision.reason === 'exhausted retry and nudge limits';
+    const isRule4Reason =
+      pass2Decision.reason === 'exhausted retry limits' ||
+      pass2Decision.reason === 'exhausted retry and nudge limits';
     const isNotRule2 = !pass2Decision.reason.includes('flagged reason code');
     const isBlockedFalse = pass2Decision.blockedByCompliance === false;
     const isDBUnrecoverable = txAfterPass2.status === 'unrecoverable';
 
     console.log('\n  Rule Differentiation Analysis:');
-    console.log(`    • Fired Rule 4 (Limits Exhausted) : ${isRule4Reason ? '✓ YES ("exhausted retry and nudge limits")' : '✗ NO'}`);
+    console.log(`    • Fired Rule 4 (Limits Exhausted) : ${isRule4Reason ? `✓ YES ("${pass2Decision.reason}")` : '✗ NO'}`);
     console.log(`    • Fired Rule 2 (Compliance Flag)  : ${!isNotRule2 ? 'YES' : '✓ NO (distinct reason & compliance flag)'}`);
     console.log(`    • blockedByCompliance             : ${isBlockedFalse ? 'false (correct for Rule 4)' : 'true'}`);
 

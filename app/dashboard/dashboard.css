@@ -21,9 +21,34 @@
 .ui-button-default:hover:not(:disabled) { background:#d0b568; border-color:#d0b568; }
 .ui-button-warning { border-color:#8a6b35; color:#e5c77d; background:rgba(185,155,80,.1); }
 .ui-button-outline { background:#1a1c1a; }
+.refresh-btn { min-width:96px; transition:color .2s,border-color .2s,background .2s; }
+.refresh-btn-updated { color:#7dd897 !important; border-color:#3d6b47 !important; background:rgba(61,107,71,.12) !important; }
+.refresh-icon { display:inline-block; margin-right:5px; font-size:12px; line-height:1; vertical-align:middle; transition:transform .2s ease-out; }
+.refresh-icon-spin { animation:spin-refresh .65s cubic-bezier(.16,1,.3,1) forwards; }
+@keyframes spin-refresh { 0% { transform:rotate(0deg); } 100% { transform:rotate(360deg); } }
 .notice { border:1px solid #706038; background:#272317; color:#dfc982; border-radius:3px; margin:18px 0 0; padding:10px 12px; font-size:12px; }
 .notice button { float:right; background:none; border:0; color:inherit; cursor:pointer; }
+.notice-success { border-color:#3d6b47; background:#141e17; color:#7dd897; }
 
+/* Payment Confirmed Banner — Real Webhook Recovery Verified */
+.payment-confirmed-banner { display:flex; align-items:center; flex-wrap:wrap; gap:8px; border:1px solid #3d6b47; background:#141e17; color:#a3e6b5; border-radius:4px; margin:14px 0 0; padding:11px 15px; font-size:11px; font-family:var(--font-geist-mono),monospace; animation:payment-link-in .4s ease-out both; }
+.payment-confirmed-banner strong { color:#4ade80; letter-spacing:.04em; }
+
+/* Razorpay Payment Link Card — Appears after live demo trigger */
+.payment-link-card { border:1px solid #3d6b47; background:#141e17; border-radius:4px; margin:14px 0 0; overflow:hidden; animation:payment-link-in .4s ease-out both; }
+.payment-link-header { display:flex; align-items:center; gap:8px; padding:10px 14px; background:#1a2b1f; border-bottom:1px solid #2d5237; }
+.payment-link-dot { width:8px; height:8px; background:#4ade80; border-radius:50%; box-shadow:0 0 0 3px rgba(74,222,128,.15); animation:payment-dot-pulse 1.8s ease-in-out infinite; }
+.payment-link-title { flex:1; font:700 10px var(--font-geist-mono),monospace; letter-spacing:.1em; text-transform:uppercase; color:#6cc88a; }
+.payment-link-close { background:none; border:0; color:#6cc88a; cursor:pointer; font-size:16px; line-height:1; padding:0 4px; }
+.payment-link-body { padding:16px; }
+.payment-link-amount { font:700 28px var(--font-geist-mono),monospace; color:#a3e6b5; letter-spacing:-.03em; font-variant-numeric:tabular-nums; }
+.payment-link-meta { font:11px var(--font-geist-mono),monospace; color:#6b8a72; margin-top:6px; }
+.payment-link-button { display:inline-block; margin-top:14px; padding:11px 22px; background:#2d8a4e; border:1px solid #3da861; border-radius:3px; color:#d9f5e3; font:700 12px var(--font-geist-mono),monospace; letter-spacing:.06em; text-decoration:none; text-transform:uppercase; cursor:pointer; transition:background .15s,transform .15s,box-shadow .15s; }
+.payment-link-button:hover { background:#36a15a; transform:translateY(-1px); box-shadow:0 4px 16px -2px rgba(45,138,78,.35); }
+.payment-link-hint { margin-top:12px; font:10px/1.5 var(--font-geist-mono),monospace; color:#5b7a62; }
+.payment-link-hint strong { color:#7ba885; }
+@keyframes payment-link-in { from { opacity:0; transform:translateY(-8px); } to { opacity:1; transform:none; } }
+@keyframes payment-dot-pulse { 0%,100% { box-shadow:0 0 0 3px rgba(74,222,128,.15); } 50% { box-shadow:0 0 0 6px rgba(74,222,128,.25); } }
 /* Metrics & KPI Cards */
 .metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:18px 0; }
 .ui-card { border:1px solid #383a34; background:#191b19; border-radius:3px; }

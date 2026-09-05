@@ -22,6 +22,7 @@ export type ClaudeRecommendation = {
   isRealApi: boolean;
   model: string;
   provider: string;
+  cached?: boolean;
 };
 
 // Default model ids per provider. Declared once so recommendAction() and
@@ -102,7 +103,7 @@ function buildCacheKey(tx: TransactionInput): string {
   const abandonHrs = (tx as any).abandonedAt
     ? ((Date.now() - new Date((tx as any).abandonedAt).getTime()) / (1000 * 60 * 60)).toFixed(0)
     : 'none';
-  return `${tx.type}:${tx.source}:${tx.reasonCode}:${tx.amountPaise}:${tx.customerTier}:${tx.retryCount}:${tx.nudgeCount}:${abandonHrs}`;
+  return `${tx.type}:${tx.source}:${tx.reasonCode}:${tx.amountPaise}:${tx.customerTier || 'standard'}:${tx.retryCount}:${tx.nudgeCount}:${abandonHrs}`;
 }
 
 function buildUserContent(transaction: TransactionInput): string {
@@ -152,7 +153,7 @@ export async function recommendAction(
 ): Promise<ClaudeRecommendation> {
   const cacheKey = buildCacheKey(transaction);
   if (!skipCache && inferenceCache.has(cacheKey)) {
-    return { ...inferenceCache.get(cacheKey)! };
+    return { ...inferenceCache.get(cacheKey)!, cached: true };
   }
 
   const userContent = buildUserContent(transaction);
@@ -168,7 +169,7 @@ export async function recommendAction(
     const genAI = new GoogleGenerativeAI(geminiKey);
 
     for (const modelName of candidateModels) {
-      for (let attempt = 1; attempt <= 6; attempt++) {
+      for (let attempt = 1; attempt <= 3; attempt++) {
         try {
           const model = genAI.getGenerativeModel({
             model: modelName,
@@ -188,19 +189,20 @@ export async function recommendAction(
             isRealApi: true,
             model: modelName,
             provider: PROVIDER_GEMINI,
+            cached: false,
           };
           inferenceCache.set(cacheKey, rec);
           return rec;
         } catch (err: any) {
           const is429 = err?.status === 429 || err?.message?.includes('429') || err?.message?.includes('quota') || err?.message?.includes('ResourceExhausted');
-          if (is429 && attempt < 6) {
-            console.log(`    ↳ [Quota backoff: pausing ${attempt * 6}s before retry...]`);
-            await sleep(attempt * 6000);
+          if (is429 && attempt < 3) {
+            console.log(`    ↳ [Quota backoff: pausing ${attempt * 2}s before retry...]`);
+            await sleep(attempt * 2000);
             continue;
           }
           const is503 = err?.status === 503 || err?.message?.includes('503') || err?.message?.includes('high demand');
-          if (is503 && attempt < 6) {
-            await sleep(attempt * 2000);
+          if (is503 && attempt < 3) {
+            await sleep(attempt * 1500);
             continue;
           }
           break;

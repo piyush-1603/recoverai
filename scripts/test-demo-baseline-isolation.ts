@@ -99,7 +99,11 @@ async function exerciseButton(kind: 'live' | 'compliance', secret: string) {
   // The demo must still be REAL, not a no-op.
   const target = await prisma.transaction.findUnique({ where: { id: payload.transactionId } });
   assert(`${kind}: target is a flagged demo artifact`, target?.isDemoArtifact === true, `isDemoArtifact=${target?.isDemoArtifact}`);
-  assert(`${kind}: target is NOT part of the 65-txn benchmark`, target?.externalPaymentId?.startsWith('pay_demo_') === true, `${target?.externalPaymentId}`);
+  const isDemoExternalId = Boolean(
+    target?.externalPaymentId?.startsWith('pay_demo_') ||
+    target?.externalPaymentId?.startsWith('plink_'),
+  );
+  assert(`${kind}: target is NOT part of the 65-txn benchmark`, isDemoExternalId, `${target?.externalPaymentId}`);
   assert(`${kind}: policy engine produced a decision`, Boolean(payload.decision?.action), `action="${payload.decision?.action}"`);
   assert(`${kind}: an audit row was written`, (await prisma.auditLog.count({ where: { transactionId: payload.transactionId } })) > 0, 'ledger entry present');
 

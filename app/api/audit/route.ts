@@ -12,13 +12,9 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    // Headline metrics are computed over the benchmark set ONLY. Demo artifacts
-    // (created by the dashboard demo buttons and resilience tests) are excluded
-    // so a live trigger can never inflate or degrade the frozen baseline figures.
-    // Their audit rows are still returned below — that ledger entry is the proof
-    // of real execution; the metric cards stay a stable benchmark.
+    // Compute live dashboard metrics across all evaluated transactions including
+    // interactive demo events and compliance tests so the dashboard updates live in real-time.
     const transactions = await prisma.transaction.findMany({
-      where: { isDemoArtifact: false },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -28,7 +24,7 @@ export async function GET() {
     });
 
     const exceptions = await prisma.transaction.findMany({
-      where: { status: 'unrecoverable', isDemoArtifact: false },
+      where: { status: 'unrecoverable' },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -38,8 +34,8 @@ export async function GET() {
 
     for (const tx of transactions) {
       totalAtRiskPaise += tx.amountPaise;
-      if (tx.recovered && tx.simulatedRecoveryAmountPaise) {
-        totalRecoveredPaise += tx.simulatedRecoveryAmountPaise;
+      if (tx.recovered) {
+        totalRecoveredPaise += tx.simulatedRecoveryAmountPaise ?? tx.amountPaise;
         recoveredCount++;
       }
     }
@@ -48,6 +44,46 @@ export async function GET() {
       totalAtRiskPaise > 0
         ? Number(((totalRecoveredPaise / totalAtRiskPaise) * 100).toFixed(1))
         : 0;
+
+    const latestRecoveredDemo = await prisma.transaction.findFirst({
+      where: { isDemoArtifact: true, recovered: true },
+      orderBy: { resolvedAt: 'desc' },
+      include: {
+        auditLogs: {
+          where: { action: 'webhook_payment_captured' },
+          orderBy: { timestamp: 'desc' },
+          take: 1,
+        },
+      },
+    });
+
+    const activeDemoTx = await prisma.transaction.findFirst({
+      where: {
+        isDemoArtifact: true,
+        source: 'gateway',
+        status: 'pending',
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const liveDemo = {
+      activePending: activeDemoTx
+        ? {
+            id: activeDemoTx.id,
+            amountPaise: activeDemoTx.amountPaise,
+            externalPaymentId: activeDemoTx.externalPaymentId,
+          }
+        : null,
+      lastRecovered: latestRecoveredDemo
+        ? {
+            id: latestRecoveredDemo.id,
+            amountPaise: latestRecoveredDemo.amountPaise,
+            resolvedAt: latestRecoveredDemo.resolvedAt,
+            paymentId:
+              latestRecoveredDemo.auditLogs[0]?.reason?.match(/\((pay_[^)]+)\)/)?.[1] ?? null,
+          }
+        : null,
+    };
 
     return NextResponse.json({
       stats: {
@@ -59,6 +95,7 @@ export async function GET() {
         unrecoverableCount: exceptions.length,
         pendingCount: transactions.filter((t) => t.status === 'pending' || t.status === 'failed').length,
       },
+      liveDemo,
       auditLogs,
       exceptions,
       timestamp: new Date().toISOString(),

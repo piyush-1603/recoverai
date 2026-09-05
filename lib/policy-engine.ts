@@ -111,6 +111,31 @@ export function diagnoseAndDecide(
     transaction.type === 'subscription' &&
     transaction.amountPaise > policyConfig.afaThresholdPaise
   ) {
+    if (transaction.nudgeCount >= policyConfig.maxNudges) {
+      return {
+        action: 'stop_unrecoverable',
+        requiresApproval: false,
+        blockedByCompliance: false,
+        reason: 'exhausted customer nudge limits',
+        policyVersion,
+      };
+    }
+
+    const inWindow =
+      currentHour >= policyConfig.nudgeWindowStartHour &&
+      currentHour < policyConfig.nudgeWindowEndHour;
+
+    if (!inWindow) {
+      return {
+        action: 'no_action',
+        requiresApproval: false,
+        blockedByCompliance: true,
+        reason:
+          'outside compliant nudge window (TRAI SMS timing rules), deferred to next window',
+        policyVersion,
+      };
+    }
+
     return {
       action: 'request_approval',
       requiresApproval: true,
@@ -125,17 +150,46 @@ export function diagnoseAndDecide(
 
   // Rule 4: Retry and nudge limits exhausted
   const isTransientSource = ['gateway', 'razorpay'].includes(transaction.source);
-  const isExhausted =
-    (isTransientSource && transaction.retryCount >= effectiveMaxRetries) ||
-    (transaction.retryCount >= effectiveMaxRetries &&
-      transaction.nudgeCount >= policyConfig.maxNudges);
+  if (isTransientSource && transaction.retryCount >= effectiveMaxRetries) {
+    return {
+      action: 'stop_unrecoverable',
+      requiresApproval: false,
+      blockedByCompliance: false,
+      reason: 'exhausted retry limits',
+      policyVersion,
+    };
+  }
 
-  if (isExhausted) {
+  if (
+    transaction.retryCount >= effectiveMaxRetries &&
+    transaction.nudgeCount >= policyConfig.maxNudges
+  ) {
     return {
       action: 'stop_unrecoverable',
       requiresApproval: false,
       blockedByCompliance: false,
       reason: 'exhausted retry and nudge limits',
+      policyVersion,
+    };
+  }
+
+  const cardReasonCodes = [
+    'card_declined',
+    'authentication_failed',
+    'card_expired',
+  ];
+  const maxCustomerNudges = cardReasonCodes.includes(transaction.reasonCode)
+    ? 1
+    : policyConfig.maxNudges;
+  if (
+    transaction.source === 'customer' &&
+    transaction.nudgeCount >= maxCustomerNudges
+  ) {
+    return {
+      action: 'stop_unrecoverable',
+      requiresApproval: false,
+      blockedByCompliance: false,
+      reason: 'exhausted customer nudge limits',
       policyVersion,
     };
   }
@@ -187,15 +241,25 @@ export function diagnoseAndDecide(
   }
 
   // Rule 7: Card-related issues — request payment method update (no retry, it would fail identically)
-  const cardReasonCodes = [
-    'card_declined',
-    'authentication_failed',
-    'card_expired',
-  ];
   if (
     cardReasonCodes.includes(transaction.reasonCode) &&
     transaction.nudgeCount < 1
   ) {
+    const inWindow =
+      currentHour >= policyConfig.nudgeWindowStartHour &&
+      currentHour < policyConfig.nudgeWindowEndHour;
+
+    if (!inWindow) {
+      return {
+        action: 'no_action',
+        requiresApproval: false,
+        blockedByCompliance: true,
+        reason:
+          'outside compliant nudge window (TRAI SMS timing rules), deferred to next window',
+        policyVersion,
+      };
+    }
+
     return {
       action: 'send_nudge',
       requiresApproval: false,

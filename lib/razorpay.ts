@@ -9,22 +9,8 @@
 import 'dotenv/config';
 import Razorpay from 'razorpay';
 import { validateWebhookSignature } from 'razorpay/dist/utils/razorpay-utils';
+import { prisma } from './prisma';
 
-/**
- * Test Cards and UPI VPAs for simulating specific Razorpay test-mode outcomes.
- *
- * NOTE: The test card numbers below follow standard Razorpay test patterns.
- * Please cross-verify exact test card numbers against Razorpay's live documentation
- * (https://razorpay.com/docs/payments/payments/test-card-details/) prior to
- * triggering specific issuer-side simulated responses.
- */
-export const TEST_CARDS = {
-  success: '4111111111111111',
-  timeout: '4100280000090000',
-  declined: '4000000000001011',
-  authentication_failed: '4000000000001029',
-  insufficient_funds: '4000000000001037',
-} as const;
 
 export const TEST_UPI_VPA = {
   success: 'success@razorpay',
@@ -111,6 +97,9 @@ export async function createOrder(
 
 /**
  * Create a Razorpay Payment Link in test mode.
+ * Gracefully handles Razorpay's test mode limit of 30 total payment links by
+ * detecting RATE_LIMIT_EXCEEDED (HTTP 429) and reusing an active unpaid 'created'
+ * link with updated notes so live checkout and webhook delivery continue working.
  */
 export async function createPaymentLink(
   amountPaise: number,
@@ -145,8 +134,64 @@ export async function createPaymentLink(
     };
   }
 
-  const paymentLink = await (client.paymentLink.create as any)(payload);
-  return paymentLink as RazorpayPaymentLinkResult;
+  try {
+    const paymentLink = await (client.paymentLink.create as any)(payload);
+    return paymentLink as RazorpayPaymentLinkResult;
+  } catch (err: any) {
+    const errorDesc =
+      err?.error?.description || err?.message || (typeof err === 'string' ? err : '');
+    const isRateLimit =
+      errorDesc.includes('limit of 30') ||
+      err?.statusCode === 429 ||
+      err?.error?.code === 'RATE_LIMIT_EXCEEDED';
+
+    if (isRateLimit) {
+      console.warn(
+        '[Razorpay] Test mode 30-link cap reached. Finding an active unpaid payment link to reuse...',
+      );
+      try {
+        const list = await (client.paymentLink as any).all({ count: 50 });
+        const allLinks = list.payment_links || [];
+        const active = allLinks.filter((l: any) => l.status === 'created');
+
+        if (active.length > 0) {
+          // Check which link IDs are already registered in the DB
+          const used = await prisma.transaction.findMany({
+            where: { externalPaymentId: { in: active.map((l: any) => l.id) } },
+            select: { externalPaymentId: true },
+          });
+          const usedSet = new Set(used.map((t) => t.externalPaymentId));
+
+          const unassigned = active.filter((l: any) => !usedSet.has(l.id));
+          const chosen =
+            unassigned.find((l: any) => l.amount === amountPaise) ||
+            unassigned[0] ||
+            active[0];
+
+          if (chosen) {
+            if (notes) {
+              try {
+                await (client.paymentLink as any).edit(chosen.id, { notes });
+              } catch (editErr) {
+                console.warn('[Razorpay] Link notes update skipped:', editErr);
+              }
+            }
+            return {
+              id: chosen.id,
+              short_url: chosen.short_url,
+              status: chosen.status,
+              amount: chosen.amount,
+              currency: chosen.currency,
+              created_at: chosen.created_at,
+            };
+          }
+        }
+      } catch (reuseErr) {
+        console.error('[Razorpay] Fallback link lookup error:', reuseErr);
+      }
+    }
+    throw err;
+  }
 }
 
 /**

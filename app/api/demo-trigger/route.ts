@@ -100,32 +100,42 @@ export async function POST(req: NextRequest) {
             customerId: 'cust_demo_live',
           };
 
-      // Reuse the same artifact across runs (stable externalPaymentId) so
-      // repeated demo clicks never accumulate rows.
-      targetTx = await prisma.transaction.upsert({
-        where: { externalPaymentId: demoKey },
-        update: {
-          status: 'failed',
-          retryCount: 0,
-          nudgeCount: 0,
-          recovered: false,
-          resolvedAt: null,
-          isDemoArtifact: true,
-        },
-        create: {
-          externalPaymentId: demoKey,
-          amountPaise: 49900,
-          status: 'failed',
-          type: 'payment',
-          customerTier: 'standard',
-          retryCount: 0,
-          nudgeCount: 0,
-          recovered: false,
-          simulatedRecoveryAmountPaise: 49900,
-          isDemoArtifact: true,
-          ...demoDefaults,
-        },
+      // Reuse the same artifact across runs (stable demoKey) so repeated demo clicks
+      // never accumulate extra rows in the database.
+      const existing = await prisma.transaction.findFirst({
+        where: { customerId: demoDefaults.customerId, isDemoArtifact: true },
       });
+
+      if (existing) {
+        targetTx = await prisma.transaction.update({
+          where: { id: existing.id },
+          data: {
+            externalPaymentId: demoKey,
+            status: 'failed',
+            retryCount: 0,
+            nudgeCount: 0,
+            recovered: false,
+            resolvedAt: null,
+            isDemoArtifact: true,
+          },
+        });
+      } else {
+        targetTx = await prisma.transaction.create({
+          data: {
+            externalPaymentId: demoKey,
+            amountPaise: 49900,
+            status: 'failed',
+            type: 'payment',
+            customerTier: 'standard',
+            retryCount: 0,
+            nudgeCount: 0,
+            recovered: false,
+            simulatedRecoveryAmountPaise: 49900,
+            isDemoArtifact: true,
+            ...demoDefaults,
+          },
+        });
+      }
     } else {
       // Explicit id supplied (tests / targeted replays): reset to a clean failed state.
       targetTx = await prisma.transaction.update({
@@ -225,9 +235,9 @@ export async function POST(req: NextRequest) {
       await writeEvent(
         targetTx.id,
         'policy_engine_override',
-        'override',
+        decision.action,
         `${advisor} recommended "${aiRec.recommendedAction}" (${aiRec.reasoning}) but policy engine enforced "${decision.action}" per rule: ${decision.reason}${executorNote}`,
-        'ai_recommendation_overridden',
+        result.outcome,
         undefined,
         decision.policyVersion,
         aiRec.provider,

@@ -25,6 +25,8 @@
     "test:advisory-unavailable": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-advisory-unavailable.ts",
     "test:demo-isolation": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-demo-baseline-isolation.ts",
     "test:provider-attribution": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-provider-attribution.ts",
+    "test:conflict-guard": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-webhook-conflict-guard.ts",
+    "test:all": "npm run test:off-window && npm run test:retry-exhaustion && npm run test:idempotency && npm run test:conflict-guard && npm run test:demo-isolation && npm run test:advisory-unavailable && npm run test:webhook-processing-failure && npm run test:provider-attribution",
     "test:p2p": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-p2p-workflow.ts"
   },
   "dependencies": {

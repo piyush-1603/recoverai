@@ -180,9 +180,9 @@ async function runPolicyCheck() {
       await writeEvent(
         tx.id,
         'policy_engine_override',
-        'override',
+        policyDecision.action,
         `${advisor} recommended "${aiRec.recommendedAction}" (${aiRec.reasoning}) but policy engine enforced "${policyDecision.action}" per rule: ${policyDecision.reason}${executorNote}`,
-        'ai_recommendation_overridden',
+        result.outcome,
         undefined,
         policyDecision.policyVersion,
         aiRec.provider,

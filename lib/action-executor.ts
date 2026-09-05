@@ -191,8 +191,7 @@ function simulateOutcome(
 
     case 'send_nudge': {
       const succeeded =
-        (expectedRecoveryOutcome === 'recovers_on_nudge' ||
-          expectedRecoveryOutcome === 'requires_approval_then_recovers') &&
+        expectedRecoveryOutcome === 'recovers_on_nudge' &&
         simulatedRecoveryAmountPaise !== null;
       const smsText = composeNudgeMessage(transaction);
       return {
@@ -304,7 +303,7 @@ export async function executeAction(
       recoveredAmountPaise = null;
       outcome = FALLBACK_OUTCOMES[fallback.outcome] ?? `${fallback.outcome}_simulated_fallback`;
       note =
-        `[SIMULATED FALLBACK — NOT A CONFIRMED RECOVERY] Razorpay Payment Link creation failed ` +
+        `[SIMULATED FALLBACK — NO LIVE RAZORPAY CALL] Razorpay Payment Link creation failed ` +
         `(${cause}). No live link exists and no payment was confirmed. The offline simulation ` +
         `would have reported "${fallback.outcome}": ${fallback.note}`;
     }

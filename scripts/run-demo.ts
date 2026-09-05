@@ -77,7 +77,15 @@ async function runDemo() {
   const argHour =
     process.argv.find((a) => a.startsWith('--hour='))?.split('=')[1] ||
     process.env.EVALUATION_HOUR;
-  const currentHour = argHour !== undefined ? parseInt(argHour, 10) : 15;
+  let currentHour = 15;
+  if (argHour !== undefined) {
+    const parsed = parseInt(argHour, 10);
+    if (isNaN(parsed) || parsed < 0 || parsed > 23) {
+      console.error(`\n❌ Error: Invalid --hour value "${argHour}". Must be an integer between 0 and 23.`);
+      process.exit(1);
+    }
+    currentHour = parsed;
+  }
 
   console.log('  ⚙️  Active Policy Engine Configuration:');
   console.log(bar('• AFA 2FA Threshold', rupees(policyConfig.afaThresholdPaise)));
@@ -135,6 +143,8 @@ async function runDemo() {
   let totalRecoveredCount = 0;
   let aiMatchedCount = 0;
   let aiOverriddenCount = 0;
+  let aiCachedCount = 0;
+  let aiDegradedCount = 0;
 
   // Which provider/model combinations actually answered, tallied from the live
   // responses. Reported in the summary so the run states what really served it
@@ -149,77 +159,104 @@ async function runDemo() {
     const globalIdx = i + 1;
     totalAtRiskPaise += tx.amountPaise;
 
-    // Step A: Real Live AI Call
+    // Step A: Real Live AI Call with try/catch resilience
     const advisoryStart = Date.now();
-    const aiRec: ClaudeRecommendation = await recommendAction(tx as any, policyConfig);
-    const advisoryElapsed = Date.now() - advisoryStart;
-
-    // Strict verification of real API flag
-    if (!aiRec.isRealApi) {
-      throw new Error(`❌ FATAL: Transaction ${tx.id} did not execute via real AI API!`);
+    let aiRec: ClaudeRecommendation | null = null;
+    let advisoryElapsed = 0;
+    try {
+      aiRec = await recommendAction(tx as any, policyConfig);
+      advisoryElapsed = Date.now() - advisoryStart;
+      if (!aiRec.isRealApi) {
+        throw new Error(`Transaction ${tx.id} did not execute via real AI API!`);
+      }
+      if (aiRec.cached) {
+        aiCachedCount++;
+      }
+    } catch (err: any) {
+      advisoryElapsed = Date.now() - advisoryStart;
+      aiDegradedCount++;
+      console.warn(`    ⚠️  [AI Advisory Degraded] Transaction ${tx.id}: ${err?.message || err}. Proceeding with deterministic policy authority...`);
+      aiRec = null;
     }
-
-    const advisorKey = `${aiRec.provider} (${aiRec.model})`;
-    observedAdvisors.set(advisorKey, (observedAdvisors.get(advisorKey) ?? 0) + 1);
-    const advisor = describeAdvisor(aiRec.provider, aiRec.model);
 
     // Step B: Pure Deterministic Policy Diagnosis (Authoritative)
     const policyDecision = diagnoseAndDecide(tx as any, policyConfig, currentHour);
-
-    const isMatch = aiRec.recommendedAction === policyDecision.action;
 
     // Step C: Action Execution (Only Policy Engine decision is executed)
     const result = await executeAction(policyDecision, tx, 'simulate');
     // Empty on the simulate path; carries the real API error if a live call ever
     // fails here, so the executor's note can never be silently dropped.
     const executorNote = auditReasonSuffix(result);
-
-    const statusTag = isMatch ? '✓ MATCH' : '⚡ OVERRIDE';
     const txIdStr = (tx.externalPaymentId || tx.id).padEnd(24);
-    console.log(
-      `  [${String(globalIdx).padStart(2)}/${transactions.length}] ${txIdStr} | ${advisoryElapsed}ms | RealAPI: ${aiRec.isRealApi} | ${aiRec.provider}: ${aiRec.recommendedAction.padEnd(17)} | Policy: ${policyDecision.action.padEnd(17)} | ${statusTag}`
-    );
 
-    if (isMatch) {
-      aiMatchedCount++;
+    if (!aiRec) {
+      console.log(
+        `  [${String(globalIdx).padStart(2)}/${transactions.length}] ${txIdStr} | ${advisoryElapsed}ms | AI: DEGRADED (Offline) | Policy: ${policyDecision.action.padEnd(17)} | ⚙️  POLICY AUTHORITY`
+      );
       await writeEvent(
         tx.id,
-        'ai_agent+policy_engine',
+        'policy_engine',
         policyDecision.action,
-        `${advisor} recommended "${aiRec.recommendedAction}" (${aiRec.reasoning}) — Confirmed by policy: ${policyDecision.reason}${executorNote}`,
-        result.outcome,
+        `AI advisory unavailable — policy engine independently enforced "${policyDecision.action}" per rule: ${policyDecision.reason}${executorNote}`,
+        'advisory_unavailable',
         undefined,
         policyDecision.policyVersion,
-        aiRec.provider,
-        aiRec.model,
+        null,
+        null,
       );
     } else {
-      aiOverriddenCount++;
-      await writeEvent(
-        tx.id,
-        'policy_engine_override',
-        'override',
-        `${advisor} recommended "${aiRec.recommendedAction}" (${aiRec.reasoning}) but policy engine enforced "${policyDecision.action}" per rule: ${policyDecision.reason}${executorNote}`,
-        'ai_recommendation_overridden',
-        undefined,
-        policyDecision.policyVersion,
-        aiRec.provider,
-        aiRec.model,
+      const isMatch = aiRec.recommendedAction === policyDecision.action;
+      const advisorKey = `${aiRec.provider} (${aiRec.model})`;
+      observedAdvisors.set(advisorKey, (observedAdvisors.get(advisorKey) ?? 0) + 1);
+      const advisor = describeAdvisor(aiRec.provider, aiRec.model);
+      const statusTag = isMatch ? '✓ MATCH' : '⚡ OVERRIDE';
+      const cacheTag = aiRec.cached ? ' [cached]' : '';
+
+      console.log(
+        `  [${String(globalIdx).padStart(2)}/${transactions.length}] ${txIdStr} | ${advisoryElapsed}ms | RealAPI: ${aiRec.isRealApi}${cacheTag} | ${aiRec.provider}: ${aiRec.recommendedAction.padEnd(17)} | Policy: ${policyDecision.action.padEnd(17)} | ${statusTag}`
       );
 
-      overriddenCases.push({
-        transactionId: tx.id,
-        externalPaymentId: tx.externalPaymentId,
-        customerTier: tx.customerTier,
-        amountPaise: tx.amountPaise,
-        aiAction: aiRec.recommendedAction,
-        aiReasoning: aiRec.reasoning,
-        advisor: advisorKey,
-        policyAction: policyDecision.action,
-        policyReason: policyDecision.reason,
-        executedAction: policyDecision.action,
-        isRealApi: aiRec.isRealApi,
-      });
+      if (isMatch) {
+        aiMatchedCount++;
+        await writeEvent(
+          tx.id,
+          'ai_agent+policy_engine',
+          policyDecision.action,
+          `${advisor} recommended "${aiRec.recommendedAction}" (${aiRec.reasoning}) — Confirmed by policy: ${policyDecision.reason}${executorNote}`,
+          result.outcome,
+          undefined,
+          policyDecision.policyVersion,
+          aiRec.provider,
+          aiRec.model,
+        );
+      } else {
+        aiOverriddenCount++;
+        await writeEvent(
+          tx.id,
+          'policy_engine_override',
+          policyDecision.action,
+          `${advisor} recommended "${aiRec.recommendedAction}" (${aiRec.reasoning}) but policy engine enforced "${policyDecision.action}" per rule: ${policyDecision.reason}${executorNote}`,
+          result.outcome,
+          undefined,
+          policyDecision.policyVersion,
+          aiRec.provider,
+          aiRec.model,
+        );
+
+        overriddenCases.push({
+          transactionId: tx.id,
+          externalPaymentId: tx.externalPaymentId,
+          customerTier: tx.customerTier,
+          amountPaise: tx.amountPaise,
+          aiAction: aiRec.recommendedAction,
+          aiReasoning: aiRec.reasoning,
+          advisor: advisorKey,
+          policyAction: policyDecision.action,
+          policyReason: policyDecision.reason,
+          executedAction: policyDecision.action,
+          isRealApi: aiRec.isRealApi,
+        });
+      }
     }
 
     if (!actionBuckets[policyDecision.action]) {
@@ -278,10 +315,16 @@ async function runDemo() {
   console.log('  🤖  REAL AI REASONING & POLICY ENFORCEMENT SUMMARY');
   console.log(hr('─'));
   console.log(bar('Served By (observed, not assumed)', observedSummary || 'none'));
+  const answeredCount = transactions.length - aiDegradedCount;
+  const advisorySummaryStr =
+    aiDegradedCount > 0
+      ? `${transactions.length} evaluated (${answeredCount} AI-assisted, ${aiCachedCount} cached, ${aiDegradedCount} degraded offline), ${aiMatchedCount} matched policy, ${aiOverriddenCount} overridden by policy engine`
+      : `${transactions.length} total (${aiCachedCount > 0 ? `${aiCachedCount} cached, ` : ''}100% real API calls), ${aiMatchedCount} matched policy, ${aiOverriddenCount} overridden by policy engine`;
+
   console.log(
     bar(
       'AI Recommendations',
-      `${transactions.length} total (100% real API calls), ${aiMatchedCount} matched policy, ${aiOverriddenCount} overridden by policy engine`,
+      advisorySummaryStr,
     ),
   );
 
