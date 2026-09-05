@@ -23,8 +23,9 @@ export async function proxyOrNull(
   const path = pathOverride ?? req.nextUrl.pathname + (req.nextUrl.search || '');
   const target = `${base}${path}`;
 
-  // Forward everything: method, headers, body
+  // Forward headers, but remove host so fetch uses the upstream target host
   const forwarded = new Headers(req.headers);
+  forwarded.delete('host');
   forwarded.set('x-forwarded-host', req.nextUrl.host);
   forwarded.set('x-forwarded-proto', req.nextUrl.protocol.replace(':', ''));
 
@@ -47,8 +48,16 @@ export async function proxyOrNull(
       headers: upstream.headers,
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Proxy error';
+    const cause = err instanceof Error && err.cause ? ` (${(err.cause as Error)?.message || JSON.stringify(err.cause)})` : '';
+    const message = err instanceof Error ? `${err.message}${cause}` : 'Proxy error';
     console.error(`[proxy] Failed to reach ${target}:`, message);
-    return NextResponse.json({ error: `Backend unreachable: ${message}` }, { status: 502 });
+    return NextResponse.json(
+      {
+        error: `Backend unreachable: ${message}`,
+        target,
+        hint: 'Check that BACKEND_API_URL in Vercel settings is set to https://recoverai-8vv7.onrender.com',
+      },
+      { status: 502 },
+    );
   }
 }
