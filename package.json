@@ -20,14 +20,20 @@
     "test:razorpay": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-razorpay-call.ts",
     "checkout:live": "npx tsx --tsconfig tsconfig.scripts.json scripts/create-live-checkout.ts",
     "demo": "npx tsx --tsconfig tsconfig.scripts.json scripts/run-demo.ts",
-    "restore-baseline": "cp dev.db.locked-baseline dev.db",
+    "restore-baseline": "rm -f dev.db-wal dev.db-shm && cp dev.db.locked-baseline dev.db",
     "test:abandonment": "npx tsx --tsconfig tsconfig.scripts.json scripts/debug-abandonment.ts",
     "test:advisory-unavailable": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-advisory-unavailable.ts",
     "test:demo-isolation": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-demo-baseline-isolation.ts",
     "test:provider-attribution": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-provider-attribution.ts",
     "test:conflict-guard": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-webhook-conflict-guard.ts",
-    "test:all": "npm run test:off-window && npm run test:retry-exhaustion && npm run test:idempotency && npm run test:conflict-guard && npm run test:demo-isolation && npm run test:advisory-unavailable && npm run test:webhook-processing-failure && npm run test:provider-attribution",
-    "test:p2p": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-p2p-workflow.ts"
+    "test:all": "npm run test:off-window && npm run test:retry-exhaustion && npm run test:idempotency && npm run test:conflict-guard && npm run test:demo-isolation && npm run test:advisory-unavailable && npm run test:webhook-processing-failure && npm run test:provider-attribution && npm run test:webhook-events && npm run test:p2p-watchdog && npm run test:smart-router && npm run test:webhook-simulator",
+    "test:p2p": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-p2p-workflow.ts",
+    "db:migrate-baseline": "npx tsx --tsconfig tsconfig.scripts.json scripts/migrate-baseline-schema.ts",
+    "test:webhook-events": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-webhook-event-coverage.ts",
+    "test:policy-parity": "npx tsx --tsconfig tsconfig.scripts.json scripts/verify-policy-parity.ts",
+    "test:p2p-watchdog": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-p2p-watchdog.ts",
+    "test:smart-router": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-smart-router.ts",
+    "test:webhook-simulator": "npx tsx --tsconfig tsconfig.scripts.json scripts/test-webhook-simulator.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",

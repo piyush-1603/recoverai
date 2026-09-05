@@ -119,6 +119,21 @@ async function runEndToEndTrace() {
       decision.action,
       decision.reason,
       'decision_rendered',
+      undefined,
+      decision.policyVersion,
+      null,
+      null,
+      {
+        amountPaise: transaction.amountPaise,
+        ruleId: decision.ruleId,
+        extra: {
+          currentHourIst: 14,
+          holdReason: decision.holdReason,
+          resumeAtHour: decision.resumeAtHour,
+          blockedByCompliance: decision.blockedByCompliance,
+          requiresApproval: decision.requiresApproval,
+        },
+      },
     );
 
     // ── STAGE 3: Action Execution ────────────────────────────────────────────
@@ -136,6 +151,26 @@ async function runEndToEndTrace() {
       execution.action,
       execution.note,
       execution.outcome,
+      undefined,
+      decision.policyVersion,
+      null,
+      null,
+      {
+        amountPaise: transaction.amountPaise,
+        recoveredAmountPaise: execution.recoveredAmountPaise,
+        simulated: execution.simulated,
+        ruleId: decision.ruleId,
+        channel: execution.channel,
+        messagingCostPaise: execution.messagingCostPaise,
+        razorpayEntityId: execution.externalPaymentId ?? transaction.externalPaymentId,
+        extra: {
+          outcome: execution.outcome,
+          resolvedStatus: execution.persistedState?.status ?? null,
+          holdReason: execution.persistedState?.holdReason ?? null,
+          deferredUntil: execution.persistedState?.deferredUntil?.toISOString() ?? null,
+          statePersisted: execution.statePersisted,
+        },
+      },
     );
 
     const txAfterExecution = await prisma.transaction.findUniqueOrThrow({

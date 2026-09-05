@@ -14,7 +14,19 @@ model Transaction {
   id                          String    @id @default(cuid())
   externalPaymentId           String?   @unique
   amountPaise                 Int
-  status                      String    // failed | recovered | unrecoverable | pending
+  // Closed state set enforced by lib/action-executor.ts. Every one of the five
+  // policy actions lands the transaction in exactly one of these:
+  //   failed        — an automated attempt ran and did not recover the money, and
+  //                   no further automated attempt is budgeted (retries exhausted)
+  //   pending       — an outbound action is in flight; we are waiting on the
+  //                   customer or the gateway (live link open, nudge sent, AFA sent)
+  //   deferred      — deliberately held with a known release time. Set when the
+  //                   policy engine suppresses an action (TRAI window closed,
+  //                   cart too fresh to nudge). `holdReason` + `deferredUntil`
+  //                   carry the resolution metadata.
+  //   recovered     — money collected (terminal)
+  //   unrecoverable — recovery abandoned on purpose (terminal)
+  status                      String    // failed | pending | deferred | recovered | unrecoverable
   reasonCode                  String    @default("")
   source                      String    @default("customer") // customer | business | gateway | razorpay
   type                        String    // payment | subscription | checkout_abandon
@@ -33,6 +45,12 @@ model Transaction {
   // benchmark metrics so a live demo can never inflate or degrade the frozen
   // 65-transaction baseline. Audit rows for these ARE still shown in the ledger.
   isDemoArtifact              Boolean   @default(false)
+  // Resolution metadata for the `deferred` and `pending` hold states. Written by
+  // the action executor whenever it parks a transaction instead of resolving it,
+  // so "why is this still open and when does it move again" is a column read
+  // rather than a guess from prose in the audit ledger.
+  holdReason                  String?   // e.g. 'trai_window_closed', 'cart_too_fresh', 'awaiting_customer_payment'
+  deferredUntil               DateTime? // when the hold is eligible to be re-evaluated
 
   auditLogs AuditLog[]
 }
@@ -50,7 +68,35 @@ model AuditLog {
   policyVersion String      @default("v1")
   timestamp     DateTime    @default(now())
 
+  // ── Structured execution metadata ──────────────────────────────────────────
+  // Every value the dashboard needs is a queryable column. Before this existed
+  // the UI recovered facts by running regexes over `reason` prose (e.g. pulling a
+  // payment id out of "…captured via Razorpay (pay_XXX)"), which silently
+  // returned null the moment the sentence was reworded. All fields are nullable:
+  // rows written before this instrumentation carry NULL and are NOT backfilled.
+  amountPaise          Int?     // transaction amount at the time of the event, in paise
+  recoveredAmountPaise Int?     // money actually confirmed collected by this event, in paise
+  simulated            Boolean  @default(false) // true = offline simulation, false = live gateway call
+  ruleId               String?  // stable policy rule identifier, e.g. 'R1_TRAI_WINDOW'
+  channel              String?  // sms | whatsapp | upi_intent | gateway_link | none
+  messagingCostPaise   Int?     // dunning cost incurred by this event, in paise
+  razorpayEntityId     String?  // pay_… / plink_… / sub_… / rfnd_… the event refers to
+
+  // ── AI advisory telemetry (advisory layer only — never authority) ───────────
+  providerLatencyMs    Int?     // wall-clock ms for the advisory LLM call
+  promptTokens         Int?
+  completionTokens     Int?
+  aiRecommendedAction  String?  // what the advisory layer proposed, before policy ruled
+  aiReasoning          String?  // the model's own stated rationale
+  aiPrompt             String?  // exact prompt sent to the model, for the reasoning inspector
+  metadata             String?  // JSON escape hatch for anything not worth a column
+
   transaction   Transaction @relation(fields: [transactionId], references: [id])
+
+  @@index([transactionId])
+  @@index([timestamp])
+  @@index([action])
+  @@index([result])
 }
 
 model PolicyConfig {
@@ -75,13 +121,19 @@ model PromiseToPay {
   transactionId         String?   // optional reference to the original failed transaction
   amountPaise           Int       // e.g. 149900 = ₹1,499.00
   promisedPaymentTime   DateTime  // when the customer committed to pay
-  status                String    @default("pending") // pending | reminder_sent | processing | completed | failed_escalated | cancelled
+  status                String    @default("pending") // pending | reminder_sent | processing | broken | completed | failed_escalated | cancelled
   paymentLinkId         String?   // Razorpay Payment Link ID
   paymentLinkUrl        String?   // short URL sent to customer
   crmTaskId             String?   // CRM ticket/task ID if escalated to human AR
   reminderSentAt        DateTime? // when the 1-hr-prior reminder was dispatched
   resolvedAt            DateTime?
   failureReason         String?
+  // Watchdog fields. A promise whose payment time has passed by more than the
+  // grace period is BROKEN — a distinct, observable state, recorded before any
+  // escalation so "the customer defaulted" and "we told a human about it" are
+  // two separate facts rather than one conflated `failed_escalated`.
+  brokenAt              DateTime?
+  escalationLevel       Int       @default(0) // 0 = none, 1 = human AR notified
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
@@ -99,7 +151,7 @@ model P2PAuditLog {
   id        String   @id @default(cuid())
   p2pId     String
   eventId   String   @unique // idempotency key
-  action    String   // p2p_created | p2p_reminder_sent | p2p_collection_triggered | p2p_completed | p2p_escalated | p2p_cancelled
+  action    String   // p2p_created | p2p_reminder_sent | p2p_collection_triggered | p2p_completed | p2p_broken | p2p_escalated | p2p_cancelled
   detail    String   // human-readable description of what happened
   result    String   // outcome label
   timestamp DateTime @default(now())

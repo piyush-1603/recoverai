@@ -58,6 +58,7 @@ async function runOffWindowTest() {
     amount: string;
     decision: PolicyDecision;
     execNote: string;
+    heldUntil: Date | null;
     passed: boolean;
   }> = [];
 
@@ -69,7 +70,13 @@ async function runOffWindowTest() {
       nudgeCount: 0,
     };
     const decision = diagnoseAndDecide(freshTx, policyConfig, forcedHour);
-    const execResult = await executeAction(decision, freshTx as any, 'simulate');
+    // 'dry_run', NOT 'simulate': this suite evaluates the real frozen benchmark
+    // rows, not demo artifacts. It was safe under 'simulate' only because
+    // `no_action` used to persist nothing; now that a compliance hold writes
+    // `deferred` + holdReason + deferredUntil, running it against the baseline
+    // would rewrite the immutable dataset. dry_run computes the identical result
+    // and commits nothing.
+    const execResult = await executeAction(decision, freshTx as any, 'dry_run');
 
     const isActionNoAction = decision.action === 'no_action';
     const isReasonCorrect =
@@ -77,8 +84,21 @@ async function runOffWindowTest() {
       'outside compliant nudge window (TRAI SMS timing rules), deferred to next window';
     const isBlocked = decision.blockedByCompliance === true;
     const isNoteCorrect = execResult.note.includes('[COMPLIANCE HOLD]');
+    // The hold must be observable as state, with a named cause and a release time.
+    const isHeldCorrectly =
+      execResult.persistedState?.status === 'deferred' &&
+      execResult.persistedState?.holdReason === 'trai_window_closed' &&
+      execResult.persistedState?.deferredUntil !== null;
+    // And nothing may have been written to the frozen dataset.
+    const isBaselineUntouched = execResult.statePersisted === false;
 
-    const passed = isActionNoAction && isReasonCorrect && isBlocked && isNoteCorrect;
+    const passed =
+      isActionNoAction &&
+      isReasonCorrect &&
+      isBlocked &&
+      isNoteCorrect &&
+      isHeldCorrectly &&
+      isBaselineUntouched;
     if (!passed) allPassed = false;
 
     decisions.push({
@@ -86,6 +106,7 @@ async function runOffWindowTest() {
       amount: `₹${(tx.amountPaise / 100).toFixed(2)}`,
       decision,
       execNote: execResult.note,
+      heldUntil: execResult.persistedState?.deferredUntil ?? null,
       passed,
     });
   }
@@ -96,7 +117,16 @@ async function runOffWindowTest() {
     const d = decisions[i];
     console.log(`  Sample [${i + 1}/${decisions.length}] - ${d.id} (${d.amount}):`);
     console.log(JSON.stringify(d.decision, null, 4));
-    console.log(`    ↳ Audit Note: "${d.execNote}"\n`);
+    console.log(`    ↳ Audit Note: "${d.execNote}"`);
+    console.log(
+      `    ↳ Held Until : ${
+        d.heldUntil
+          ? `${d.heldUntil.toISOString()} (${d.heldUntil.toLocaleString('en-IN', {
+              timeZone: 'Asia/Kolkata',
+            })} IST)`
+          : 'unbounded'
+      }\n`,
+    );
   }
 
   console.log('  ' + hr('─'));
@@ -120,6 +150,8 @@ async function runOffWindowTest() {
     console.log(`     • action: "no_action" (NOT "send_nudge")`);
     console.log(`     • blockedByCompliance: true`);
     console.log(`     • reason: "outside compliant nudge window (TRAI SMS timing rules), deferred to next window"`);
+    console.log(`     • state: "deferred" with holdReason "trai_window_closed" and a concrete release time`);
+    console.log(`     • zero writes to the frozen benchmark dataset (dry_run)`);
   } else {
     console.log('  ❌ TEST RESULT: FAIL');
   }

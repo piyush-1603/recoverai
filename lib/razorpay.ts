@@ -203,6 +203,18 @@ export async function fetchPayment(paymentId: string): Promise<any> {
 }
 
 /**
+ * Fetch a Payment Link by id, so a workflow can ask the gateway whether the
+ * customer actually paid instead of guessing.
+ *
+ * Razorpay reports `status` as created | partially_paid | paid | cancelled |
+ * expired, plus `amount_paid` in paise.
+ */
+export async function fetchPaymentLink(paymentLinkId: string): Promise<any> {
+  const client = getRazorpayClient();
+  return (client.paymentLink.fetch as any)(paymentLinkId);
+}
+
+/**
  * Verify incoming webhook signature using Razorpay HMAC-SHA256 helper.
  */
 export function verifyWebhookSignature(

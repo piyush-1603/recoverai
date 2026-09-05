@@ -14,7 +14,7 @@ import { prisma } from '../lib/prisma';
 import { diagnoseAndDecide } from '../lib/policy-engine';
 import { recommendAction, describeConfiguredProviders } from '../lib/claude-agent';
 import { executeAction, auditReasonSuffix } from '../lib/action-executor';
-import { writeEvent, describeAdvisor } from '../lib/audit-logger';
+import { writeEvent, describeAdvisor, type AuditMetadata } from '../lib/audit-logger';
 
 function rupees(paise: number): string {
   return `₹${(paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
@@ -162,6 +162,29 @@ async function runPolicyCheck() {
     // fails here, so the executor's note can never be silently dropped.
     const executorNote = auditReasonSuffix(result);
 
+    // Structured facts for the ledger — same columns the dashboard reads, so a
+    // policy-check run produces rows indistinguishable in shape from a live one.
+    const meta: AuditMetadata = {
+      amountPaise: tx.amountPaise,
+      recoveredAmountPaise: result.recoveredAmountPaise,
+      simulated: result.simulated,
+      ruleId: policyDecision.ruleId,
+      channel: result.channel,
+      messagingCostPaise: result.messagingCostPaise,
+      razorpayEntityId: result.externalPaymentId ?? tx.externalPaymentId,
+      aiRecommendedAction: aiRec.recommendedAction,
+      aiReasoning: aiRec.reasoning,
+      extra: {
+        outcome: result.outcome,
+        executionMode: 'simulate',
+        currentHourIst: currentHour,
+        resolvedStatus: result.persistedState?.status ?? null,
+        holdReason: result.persistedState?.holdReason ?? null,
+        deferredUntil: result.persistedState?.deferredUntil?.toISOString() ?? null,
+        blockedByCompliance: policyDecision.blockedByCompliance,
+      },
+    };
+
     if (isMatch) {
       aiMatchedCount++;
       await writeEvent(
@@ -174,6 +197,7 @@ async function runPolicyCheck() {
         policyDecision.policyVersion,
         aiRec.provider,
         aiRec.model,
+        meta,
       );
     } else {
       aiOverriddenCount++;
@@ -187,6 +211,7 @@ async function runPolicyCheck() {
         policyDecision.policyVersion,
         aiRec.provider,
         aiRec.model,
+        meta,
       );
 
       overriddenCases.push({

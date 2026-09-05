@@ -9,6 +9,7 @@
  * 5 minutes) or invoke manually. It scans the database for:
  *  - Pending P2Ps whose reminder window is open (T - 1 hour)
  *  - Reminded P2Ps whose promised payment time has arrived
+ *  - Promises past their grace period, which are declared broken and escalated
  *
  * Because state lives in the DB (not in memory), this survives server
  * restarts, container redeploys, and crashes — exactly like Temporal's
@@ -27,7 +28,9 @@ export async function POST() {
       summary: {
         remindersProcessed: result.remindersProcessed,
         collectionsProcessed: result.collectionsProcessed,
-        totalProcessed: result.remindersProcessed + result.collectionsProcessed,
+        breachesProcessed: result.breachesProcessed,
+        totalProcessed:
+          result.remindersProcessed + result.collectionsProcessed + result.breachesProcessed,
       },
       details: result.results,
     });

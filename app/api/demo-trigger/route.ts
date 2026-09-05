@@ -14,9 +14,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { diagnoseAndDecide } from '@/lib/policy-engine';
+import { getGatewayHealth } from '@/lib/gateway-health';
 import { recommendAction, ClaudeRecommendation } from '@/lib/claude-agent';
 import { executeAction, auditReasonSuffix } from '@/lib/action-executor';
-import { writeEvent, describeAdvisor } from '@/lib/audit-logger';
+import { writeEvent, describeAdvisor, type AuditMetadata } from '@/lib/audit-logger';
 
 export const dynamic = 'force-dynamic';
 
@@ -116,6 +117,11 @@ export async function POST(req: NextRequest) {
             nudgeCount: 0,
             recovered: false,
             resolvedAt: null,
+            // A reset is a fresh failure, so any hold from the previous run is
+            // stale. Leaving these behind made the artifact look like it was
+            // still parked under a TRAI window it had long since exited.
+            holdReason: null,
+            deferredUntil: null,
             isDemoArtifact: true,
           },
         });
@@ -146,6 +152,8 @@ export async function POST(req: NextRequest) {
           nudgeCount: 0,
           recovered: false,
           resolvedAt: null,
+          holdReason: null,
+          deferredUntil: null,
         },
       });
     }
@@ -189,7 +197,19 @@ export async function POST(req: NextRequest) {
     }
 
     // 4. Pure Policy Diagnosis (Authoritative)
-    const decision = diagnoseAndDecide(targetTx as any, policyConfig, currentHour);
+    //
+    // The health snapshot is read here rather than inside the engine on purpose:
+    // the engine stays pure (no clock, no network, no I/O) so it remains testable
+    // and the parity suite can prove the rule ladder is untouched. Rail health is
+    // an observation about the outside world, so the caller supplies it.
+    const gatewayHealth = getGatewayHealth();
+    const decision = diagnoseAndDecide(
+      targetTx as any,
+      policyConfig,
+      currentHour,
+      undefined,
+      gatewayHealth,
+    );
 
     // 5. Real live execution (always executes Policy Engine decision)
     const result = await executeAction(decision, targetTx, 'live');
@@ -205,6 +225,61 @@ export async function POST(req: NextRequest) {
     const isMatch = aiRec ? aiRec.recommendedAction === decision.action : null;
     const advisor = aiRec ? describeAdvisor(aiRec.provider, aiRec.model) : null;
     const executorNote = auditReasonSuffix(result);
+
+    // Structured, queryable facts about this event. The reason prose above stays
+    // exactly as it was — it is what a human reads and what several suites assert
+    // on — but nothing downstream has to parse it any more: every value the
+    // dashboard needs is now a column.
+    const meta: AuditMetadata = {
+      amountPaise: targetTx.amountPaise,
+      recoveredAmountPaise: result.recoveredAmountPaise,
+      simulated: result.simulated,
+      ruleId: decision.ruleId,
+      channel: result.channel,
+      messagingCostPaise: result.messagingCostPaise,
+      razorpayEntityId: result.externalPaymentId ?? targetTx.externalPaymentId,
+      aiRecommendedAction: aiRec?.recommendedAction ?? null,
+      aiReasoning: aiRec?.reasoning ?? null,
+      extra: {
+        outcome: result.outcome,
+        executionMode: 'live',
+        currentHourIst: currentHour,
+        resolvedStatus: result.persistedState?.status ?? null,
+        holdReason: result.persistedState?.holdReason ?? null,
+        deferredUntil: result.persistedState?.deferredUntil?.toISOString() ?? null,
+        blockedByCompliance: decision.blockedByCompliance,
+        // Which rail the Smart Optimizer chose and why. Flattened rather than
+        // nested so the ledger stays queryable with plain JSON extraction — the
+        // same reason every other value in here is a scalar.
+        ...(result.routing
+          ? {
+              routingStrategy: result.routing.strategy,
+              routedFrom: `${result.routing.origin.method}:${result.routing.origin.instrument}`,
+              routedTo: result.routing.recommended
+                ? `${result.routing.recommended.method}:${result.routing.recommended.instrument}`
+                : null,
+              routingOriginStatus: result.routing.originStatus,
+              routingUpliftPct: result.routing.upliftPct,
+              routingOriginInferred: result.routing.originInferred,
+            }
+          : {}),
+        // The dunning artefact, so the trace drawer can show exactly what the
+        // customer received without re-deriving it from the reason prose.
+        ...(result.dunningMessage
+          ? {
+              dltHeader: result.dunningMessage.header,
+              dltTemplateId: result.dunningMessage.templateId,
+              dltCategory: result.dunningMessage.category,
+              upiIntentUrl: result.dunningMessage.upiIntentUrl,
+              dunningShortlink: result.dunningMessage.shortlink,
+              dunningTransactionRef: result.dunningMessage.transactionRef,
+            }
+          : {}),
+        ...(advisoryError ? { advisoryError } : {}),
+        ...(result.fallbackError ? { fallbackError: result.fallbackError } : {}),
+      },
+    };
+
     if (!aiRec) {
       // Degraded path: no AI opinion existed, so this is neither a match nor an
       // override. Provider/model stay NULL because no provider actually answered.
@@ -218,6 +293,7 @@ export async function POST(req: NextRequest) {
         decision.policyVersion,
         null,
         null,
+        meta,
       );
     } else if (isMatch) {
       await writeEvent(
@@ -230,6 +306,7 @@ export async function POST(req: NextRequest) {
         decision.policyVersion,
         aiRec.provider,
         aiRec.model,
+        meta,
       );
     } else {
       await writeEvent(
@@ -242,6 +319,7 @@ export async function POST(req: NextRequest) {
         decision.policyVersion,
         aiRec.provider,
         aiRec.model,
+        meta,
       );
     }
 
@@ -256,6 +334,11 @@ export async function POST(req: NextRequest) {
       decision,
       result,
       isMatch,
+      // Additive: existing consumers ignore it, the new operations console renders
+      // the rail matrix from it. `live` is false because Razorpay does not expose
+      // the downtime feed on test keys — the UI must say so rather than imply
+      // measured production telemetry.
+      gatewayHealth,
       timestamp: new Date().toISOString(),
     });
   } catch (error: any) {

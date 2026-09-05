@@ -204,6 +204,12 @@ async function run() {
       'v1',
       rec.provider,
       rec.model,
+      {
+        ruleId: 'R5_TRANSIENT_RETRY',
+        aiRecommendedAction: rec.recommendedAction,
+        aiReasoning: rec.reasoning,
+        amountPaise: 49900,
+      },
     );
 
     assert('provider column persisted', overrideRow?.provider === PROVIDER_GEMINI, `${overrideRow?.provider}`);
@@ -211,6 +217,23 @@ async function run() {
     assert('reason names the real provider', overrideRow?.reason.includes(PROVIDER_GEMINI) === true, 'provider present in prose');
     assert('reason names the real model', overrideRow?.reason.includes('gemini-3.5-flash-lite') === true, 'model present in prose');
     assert('reason claims no other provider', !/anthropic|openai/i.test(overrideRow?.reason ?? ''), 'no cross-provider claim');
+
+    // The structured route: what the dashboard reads now. Asserted alongside the
+    // regex below so the prose-parsing fallback can be retired without losing
+    // coverage of the advisory-vs-policy distinction it was extracting.
+    const structured = await prisma.auditLog.findFirst({ where: { transactionId: throwaway.id } });
+    assert(
+      'aiRecommendedAction column persisted',
+      structured?.aiRecommendedAction === 'send_nudge',
+      `${structured?.aiRecommendedAction}`,
+    );
+    assert(
+      'enforced action readable from the action column',
+      structured?.action === 'override' && structured?.actor === 'policy_engine_override',
+      `${structured?.actor}/${structured?.action}`,
+    );
+    assert('ruleId column persisted', structured?.ruleId === 'R5_TRANSIENT_RETRY', `${structured?.ruleId}`);
+    assert('aiReasoning column persisted', structured?.aiReasoning === rec.reasoning, 'reasoning stored verbatim');
 
     const signal = policySignal(overrideRow?.reason ?? '', overrideRow?.action ?? '');
     assert('dashboard still extracts AI action', signal.ai === 'send_nudge', `ai="${signal.ai}"`);

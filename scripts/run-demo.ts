@@ -20,7 +20,7 @@ import {
   ClaudeRecommendation,
 } from '../lib/claude-agent';
 import { executeAction, auditReasonSuffix } from '../lib/action-executor';
-import { writeEvent, describeAdvisor } from '../lib/audit-logger';
+import { writeEvent, describeAdvisor, type AuditMetadata } from '../lib/audit-logger';
 import { seedDatabase } from '../data/seed-transactions';
 
 function rupees(paise: number): string {
@@ -189,6 +189,32 @@ async function runDemo() {
     const executorNote = auditReasonSuffix(result);
     const txIdStr = (tx.externalPaymentId || tx.id).padEnd(24);
 
+    // Structured facts for the ledger, so the dashboard reads columns instead of
+    // parsing the reason prose. `advisoryElapsed` is already measured above, so
+    // provider latency is recorded rather than estimated.
+    const meta: AuditMetadata = {
+      amountPaise: tx.amountPaise,
+      recoveredAmountPaise: result.recoveredAmountPaise,
+      simulated: result.simulated,
+      ruleId: policyDecision.ruleId,
+      channel: result.channel,
+      messagingCostPaise: result.messagingCostPaise,
+      razorpayEntityId: result.externalPaymentId ?? tx.externalPaymentId,
+      providerLatencyMs: advisoryElapsed,
+      aiRecommendedAction: aiRec?.recommendedAction ?? null,
+      aiReasoning: aiRec?.reasoning ?? null,
+      extra: {
+        outcome: result.outcome,
+        executionMode: 'simulate',
+        currentHourIst: currentHour,
+        resolvedStatus: result.persistedState?.status ?? null,
+        holdReason: result.persistedState?.holdReason ?? null,
+        deferredUntil: result.persistedState?.deferredUntil?.toISOString() ?? null,
+        blockedByCompliance: policyDecision.blockedByCompliance,
+        advisoryCached: aiRec?.cached ?? null,
+      },
+    };
+
     if (!aiRec) {
       console.log(
         `  [${String(globalIdx).padStart(2)}/${transactions.length}] ${txIdStr} | ${advisoryElapsed}ms | AI: DEGRADED (Offline) | Policy: ${policyDecision.action.padEnd(17)} | ⚙️  POLICY AUTHORITY`
@@ -203,6 +229,7 @@ async function runDemo() {
         policyDecision.policyVersion,
         null,
         null,
+        meta,
       );
     } else {
       const isMatch = aiRec.recommendedAction === policyDecision.action;
@@ -228,6 +255,7 @@ async function runDemo() {
           policyDecision.policyVersion,
           aiRec.provider,
           aiRec.model,
+          meta,
         );
       } else {
         aiOverriddenCount++;
@@ -241,6 +269,7 @@ async function runDemo() {
           policyDecision.policyVersion,
           aiRec.provider,
           aiRec.model,
+          meta,
         );
 
         overriddenCases.push({

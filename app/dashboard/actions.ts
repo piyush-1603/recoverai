@@ -2,6 +2,7 @@
 
 import { NextRequest } from 'next/server';
 import { POST as executeDemoTrigger } from '@/app/api/demo-trigger/route';
+import { POST as executeWebhookSimulator } from '@/app/api/test-webhook-simulator/route';
 
 export async function triggerDashboardDemo(kind: 'live' | 'compliance') {
   const secret = process.env.DEMO_TRIGGER_SECRET;
@@ -23,3 +24,23 @@ export async function triggerDashboardDemo(kind: 'live' | 'compliance') {
   if (!response.ok) throw new Error(payload.error || 'Demo trigger failed.');
   return payload;
 }
+
+export async function simulateWebhookPayment(options?: {
+  transactionId?: string;
+  externalPaymentId?: string;
+  event?: string;
+}) {
+  const request = new NextRequest('http://internal/api/test-webhook-simulator', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(options || {}),
+  });
+  const response = await executeWebhookSimulator(request);
+  const payload = await response.json();
+
+  if (!response.ok) throw new Error(payload.error || 'Webhook simulation failed.');
+  return payload;
+}
+
