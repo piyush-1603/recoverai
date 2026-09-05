@@ -3,15 +3,24 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import {
+  LayoutDashboard,
+  ReceiptText,
+  ShieldCheck,
+  ChartNoAxesCombined,
+  Play,
+  Zap,
+  Clock,
+  HelpCircle,
+  Terminal,
+} from 'lucide-react';
 import { useDashboard } from './DashboardContext';
 
 export function DashboardSidebar() {
   const pathname = usePathname();
   const {
-    isTraiOpen,
-    istTime,
-    istHour,
     stats,
+    policyVersion,
     handleTrigger,
     triggering,
     handleSimulateWebhook,
@@ -23,156 +32,144 @@ export function DashboardSidebar() {
   const navItems = [
     {
       href: '/dashboard',
-      label: 'Cockpit Overview',
-      shortLabel: 'Overview',
-      icon: '⚡',
-      badge: 'LIVE',
-      description: 'KPI telemetry & recovery rails',
+      label: 'Overview',
+      icon: LayoutDashboard,
+      badge: null,
     },
     {
       href: '/dashboard/ledger',
-      label: 'Audit Ledger',
-      shortLabel: 'Ledger',
-      icon: '📋',
+      label: 'Transactions',
+      icon: ReceiptText,
       badge: stats ? `${stats.totalTransactions}` : '65',
-      description: 'Immutable append-only trail',
     },
     {
       href: '/dashboard/compliance',
-      label: 'Policy & Guard',
-      shortLabel: 'Compliance',
-      icon: '🛡️',
-      badge: `${stats?.complianceHoldCount ?? 0} HOLDS`,
-      description: 'TRAI window & stopping rules',
+      label: 'Compliance',
+      icon: ShieldCheck,
+      badge: null,
     },
     {
       href: '/dashboard/analytics',
-      label: 'ROI & Economics',
-      shortLabel: 'Analytics',
-      icon: '📈',
-      badge: '+11.5% LIFT',
-      description: 'Merchant ROI & unit economics',
+      label: 'Analytics',
+      icon: ChartNoAxesCombined,
+      badge: null,
     },
   ];
 
   return (
     <aside className="app-sidebar">
-      {/* Brand & System Status */}
+      {/* Brand & Wordmark */}
       <div className="sidebar-brand">
         <div className="brand-logo-row">
-          <span className="brand-slash">/</span>
-          <span className="brand-name">RecoverAI</span>
-          <span className="brand-pill">RAZORPAY</span>
+          <div className="brand-logo-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+              <path d="M21 3v5h-5" />
+              <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+              <path d="M3 21v-5h5" />
+            </svg>
+          </div>
+          <div className="brand-text-col">
+            <span className="brand-name">RecoverAI</span>
+            <span className="brand-tagline">Revenue recovery</span>
+          </div>
         </div>
-        <div className="brand-tagline">Autonomous Revenue Recovery Engine</div>
       </div>
 
-      {/* Navigation Sections */}
+      {/* Main Navigation */}
       <nav className="sidebar-nav">
-        <div className="sidebar-section-title">CONTROL CENTER</div>
+        <div className="sidebar-section-title">Navigation</div>
         {navItems.map((item) => {
           const isActive = pathname === item.href;
+          const Icon = item.icon;
           return (
             <Link
               key={item.href}
               href={item.href}
               className={`sidebar-nav-item ${isActive ? 'active' : ''}`}
             >
-              <div className="nav-item-icon">{item.icon}</div>
-              <div className="nav-item-content">
-                <div className="nav-item-title-row">
-                  <span className="nav-item-title">{item.label}</span>
-                  {item.badge && <span className="nav-item-badge">{item.badge}</span>}
-                </div>
-                <div className="nav-item-desc">{item.description}</div>
-              </div>
+              <Icon className="nav-item-icon" size={17} />
+              <span className="nav-item-label">{item.label}</span>
+              {item.badge && <span className="nav-item-badge">{item.badge}</span>}
             </Link>
           );
         })}
       </nav>
 
-      {/* TRAI Compliance Status Box */}
-      <div className="sidebar-compliance-widget">
-        <div className="compliance-widget-header">
-          <span className={`compliance-live-dot ${isTraiOpen ? 'dot-open' : 'dot-night'}`} />
-          <span className="compliance-widget-title">
-            {isTraiOpen ? 'TRAI WINDOW OPEN' : 'NOCTURNAL SHIELD'}
-          </span>
-        </div>
-        <div className="compliance-widget-details">
-          <span>{isTraiOpen ? 'Commercial nudges permitted' : 'Nudges suppressed until 10:00 IST'}</span>
-          <div className="compliance-hours-meta">
-            10:00–21:00 IST · Active Holds: {stats?.complianceHoldCount ?? 0}
+      {/* Lower Area: Demo Tools & Environment */}
+      <div className="sidebar-bottom-area">
+        {/* Discreet Demo Tools Container */}
+        <div className="demo-tools-box">
+          <div className="demo-tools-header">
+            <span className="demo-tools-title">Demo tools</span>
+          </div>
+
+          <div className="demo-tools-actions">
+            <button
+              type="button"
+              className="demo-btn-primary"
+              onClick={() => handleTrigger('live')}
+              disabled={triggering !== null}
+              title="Trigger live payment recovery workflow (Hotkey: L)"
+            >
+              <Play size={13} fill="currentColor" />
+              <span>{triggering === 'live' ? 'Running…' : 'Run demo'}</span>
+            </button>
+
+            <button
+              type="button"
+              className="demo-btn-secondary"
+              onClick={() => handleSimulateWebhook()}
+              disabled={isSimulatingWebhook}
+              title="Simulate Razorpay payment webhook (Hotkey: W)"
+            >
+              <Zap size={13} />
+              <span>{isSimulatingWebhook ? 'Simulating…' : 'Simulate webhook'}</span>
+            </button>
+
+            <button
+              type="button"
+              className="demo-btn-secondary"
+              onClick={() => handleTrigger('compliance')}
+              disabled={triggering !== null}
+              title="Test nocturnal TRAI compliance window interception (Hotkey: O)"
+            >
+              <Clock size={13} />
+              <span>{triggering === 'compliance' ? 'Testing…' : 'Test compliance hold'}</span>
+            </button>
+          </div>
+
+          {/* Minimal secondary links for shortcuts & terminal */}
+          <div className="demo-tools-footer-links">
+            <button
+              type="button"
+              className="demo-link-btn"
+              onClick={() => setShowShortcuts(true)}
+              title="Keyboard shortcuts (?)"
+            >
+              <HelpCircle size={12} />
+              <span>Shortcuts</span>
+            </button>
+            <button
+              type="button"
+              className="demo-link-btn"
+              onClick={() => setShowTerminal(true)}
+              title="Diagnostic console (`)"
+            >
+              <Terminal size={12} />
+              <span>Diagnostics</span>
+            </button>
           </div>
         </div>
-      </div>
 
-      {/* Quick Action Triggers */}
-      <div className="sidebar-actions-section">
-        <div className="sidebar-section-title">OPERATIONAL CONTROLS</div>
-
-        <button
-          type="button"
-          className="sidebar-action-btn sim-webhook"
-          onClick={() => handleSimulateWebhook()}
-          disabled={isSimulatingWebhook}
-          title="Simulate authentic HMAC-SHA256 Razorpay payment webhook [W]"
-        >
-          <span>⚡ {isSimulatingWebhook ? 'SIMULATING…' : 'SIMULATE WEBHOOK'}</span>
-          <span className="key-hint">W</span>
-        </button>
-
-        <button
-          type="button"
-          className="sidebar-action-btn live-trigger"
-          onClick={() => handleTrigger('live')}
-          disabled={triggering !== null}
-          title="Trigger authentic live payment recovery workflow [L]"
-        >
-          <span>{triggering === 'live' ? 'RECORDING…' : '🎬 LIVE DEMO EVENT'}</span>
-          <span className="key-hint">L</span>
-        </button>
-
-        <button
-          type="button"
-          className="sidebar-action-btn compliance-trigger"
-          onClick={() => handleTrigger('compliance')}
-          disabled={triggering !== null}
-          title="Test nocturnal TRAI compliance window interception [O]"
-        >
-          <span>{triggering === 'compliance' ? 'EVALUATING…' : '🧪 OFF-WINDOW TEST'}</span>
-          <span className="key-hint">O</span>
-        </button>
-
-        <div className="sidebar-util-btns">
-          <button
-            type="button"
-            className="sidebar-util-btn"
-            onClick={() => setShowTerminal(true)}
-            title="Launch Terminal Diagnostics [`]"
-          >
-            <span>💻 TERMINAL</span>
-            <span className="key-hint">`</span>
-          </button>
-          <button
-            type="button"
-            className="sidebar-util-btn"
-            onClick={() => setShowShortcuts(true)}
-            title="Keyboard Shortcuts [?]"
-          >
-            <span>⌨️ SHORTCUTS</span>
-            <span className="key-hint">?</span>
-          </button>
+        {/* Professional Environment Status */}
+        <div className="sidebar-footer">
+          <div className="system-health">
+            <span className="health-dot" />
+            <span>Test environment</span>
+          </div>
+          <span className="footer-meta-pill">Policy {policyVersion || 'v1'}</span>
         </div>
-      </div>
-
-      {/* Footer Meta */}
-      <div className="sidebar-footer">
-        <div className="system-health">
-          <span className="health-dot" />
-          <span>POLICY KERNEL v1 · DETERMINISTIC</span>
-        </div>
-        <div className="sidebar-version">GEMINI 2.5 ADVISORY + RAZORPAY PG</div>
       </div>
     </aside>
   );

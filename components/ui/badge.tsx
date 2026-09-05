@@ -9,6 +9,7 @@ const badgeVariants = cva('ui-badge', {
       warning: 'ui-badge-warning',
       danger: 'ui-badge-danger',
       accent: 'ui-badge-accent',
+      info: 'ui-badge-info',
     },
   },
   defaultVariants: { tone: 'neutral' },

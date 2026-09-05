@@ -114,18 +114,18 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
           {/* Real-time System Notification Banner */}
           {triggerNotification && (
             <motion.div
-              className="live-notification-banner"
-              initial={{ opacity: 0, y: -8 }}
+              className="saas-banner saas-banner-info"
+              initial={{ opacity: 0, y: -6 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.2 }}
+              transition={{ duration: 0.15 }}
             >
-              <div className="notification-content">
-                <span className="notification-dot" />
-                <span>{triggerNotification}</span>
+              <div className="saas-banner-content">
+                <span className="saas-banner-dot bg-blue" />
+                <span className="saas-banner-text">{triggerNotification}</span>
               </div>
               <button
                 type="button"
-                className="notification-dismiss"
+                className="saas-banner-close"
                 onClick={() => setTriggerNotification(null)}
                 aria-label="Dismiss banner"
               >
@@ -137,51 +137,42 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
           {/* Webhook Recovery Banner */}
           {liveRecovery && (
             <motion.div
-              className="recovery-banner"
+              className="saas-banner saas-banner-success"
               initial={{ opacity: 0, y: -6 }}
               animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.15 }}
             >
-              <span className="pulse-indicator" />
-              <span>
-                <strong>LIVE RECOVERY EVENT VERIFIED:</strong>{' '}
-                {formatRupees(liveRecovery.amountPaise)} captured via real Razorpay Webhook on #{liveRecovery.id.slice(-8)}
-              </span>
+              <div className="saas-banner-content">
+                <span className="saas-banner-dot bg-green" />
+                <span className="saas-banner-text">
+                  <strong>Payment recovered</strong> — {formatRupees(liveRecovery.amountPaise)} was captured successfully for transaction ••••{liveRecovery.id.slice(-8)}.
+                </span>
+              </div>
             </motion.div>
           )}
 
           {/* TRAI Compliance Interception Alert Banner */}
           {complianceHold && (
             <motion.div
-              className="compliance-alert-banner"
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.25 }}
+              className="saas-banner saas-banner-warning"
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.15 }}
             >
-              <div className="compliance-banner-header">
-                <div className="compliance-banner-badge">
-                  <span className="compliance-hold-dot" />
-                  <strong>TRAI NOCTURNAL SHIELD ACTIVE (10:00–21:00 IST)</strong>
-                </div>
-                <div className="compliance-banner-meta">
-                  <span>Simulated Off-Window: 02:00 IST</span>
-                  <span>Target: #{complianceHold.transactionId.slice(-8)}</span>
-                </div>
-                <button
-                  type="button"
-                  className="drawer-close"
-                  onClick={dismissComplianceHold}
-                  aria-label="Dismiss compliance alert"
-                  style={{ color: '#f59e0b', fontSize: 16 }}
-                >
-                  ×
-                </button>
+              <div className="saas-banner-content">
+                <span className="saas-banner-dot bg-amber" />
+                <span className="saas-banner-text">
+                  <strong>Recovery action delayed</strong> — Customer communication was postponed because it falls outside the configured TRAI communication window (10:00–21:00 IST). Target transaction ••••{complianceHold.transactionId.slice(-8)}.
+                </span>
               </div>
-              <div className="compliance-banner-body">
-                <strong>REGULATORY INTERCEPTION:</strong> AI (Google Gemini) recommended{' '}
-                <code>"send_nudge"</code>, but RecoverAI's deterministic policy authority intercepted and suppressed
-                the action. Under <strong>TRAI TCCCPR Regulations</strong>, automated commercial communications
-                (SMS/WhatsApp) are prohibited outside the 10:00–21:00 IST window. Action deferred to next compliant window.
-              </div>
+              <button
+                type="button"
+                className="saas-banner-close"
+                onClick={dismissComplianceHold}
+                aria-label="Dismiss alert"
+              >
+                ×
+              </button>
             </motion.div>
           )}
 

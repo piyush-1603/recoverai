@@ -1,108 +1,85 @@
 'use client';
 
 import React from 'react';
-import dynamic from 'next/dynamic';
 import { usePathname } from 'next/navigation';
-import { useDashboard, formatTime } from './DashboardContext';
-
-const HeaderNetwork3D = dynamic(() => import('./HeaderNetwork3D'), {
-  ssr: false,
-  loading: () => <div className="header-3d-fallback" aria-hidden="true" />,
-});
+import { RotateCw } from 'lucide-react';
+import { useDashboard } from './DashboardContext';
 
 export function DashboardHeader() {
   const pathname = usePathname();
   const {
     istTime,
-    isTraiOpen,
     isRefreshing,
     refreshCompleted,
     handleManualRefresh,
     lastRefreshed,
-    triggerNotification,
-    setTriggerNotification,
-    setShowShortcuts,
   } = useDashboard();
 
-  const getBreadcrumb = () => {
+  const getPageInfo = () => {
     switch (pathname) {
       case '/dashboard/ledger':
         return {
-          category: 'Immutable Audit Trail',
-          title: 'Audit Ledger & Execution Traces',
-          desc: 'Cryptographically verifiable, append-only record of every payment recovery decision.',
+          title: 'Transactions',
+          desc: 'Review recovery attempts, outcomes and execution details.',
         };
       case '/dashboard/compliance':
         return {
-          category: 'Regulatory Governance',
-          title: 'Policy Kernel & TRAI Compliance Shield',
-          desc: 'Deterministic enforcement of TRAI 10:00–21:00 IST communication windows and stopping rules.',
+          title: 'Compliance',
+          desc: 'Monitor recovery policies, communication windows and safeguards.',
         };
       case '/dashboard/analytics':
         return {
-          category: 'Financial Economics',
-          title: 'Merchant ROI & Unit Economics',
-          desc: 'Real-time revenue salvage modeling, dunning cost attribution, and cashflow waterfall.',
+          title: 'Analytics',
+          desc: 'Measure recovery performance and estimated financial impact.',
         };
       case '/dashboard':
       default:
         return {
-          category: 'Autonomous Operations',
-          title: 'Cockpit Overview',
-          desc: 'Deterministic policy execution · Razorpay test environment · Real-time recovery telemetry',
+          title: 'Overview',
+          desc: 'Monitor payment failures, recovered revenue and recent recovery activity.',
         };
     }
   };
 
-  const breadcrumb = getBreadcrumb();
+  const pageInfo = getPageInfo();
+
+  // Format updated time
+  const updatedTimeStr = new Intl.DateTimeFormat('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(lastRefreshed);
+
+  const istClockStr = new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(istTime);
 
   return (
     <header className="app-header">
-      <div className="header-meta-group">
-        <div className="header-eyebrow">RecoverAI / {breadcrumb.category}</div>
-        <h1 className="header-title">{breadcrumb.title}</h1>
-        <p className="header-desc">{breadcrumb.desc}</p>
+      <div className="header-left-group">
+        <h1 className="header-title">{pageInfo.title}</h1>
+        <p className="header-desc">{pageInfo.desc}</p>
       </div>
 
-      <HeaderNetwork3D />
-
       <div className="header-right-controls">
-        {/* Live IST Clock with dynamic TRAI Compliance Status */}
-        <div className={`ist-clock-badge ${isTraiOpen ? 'trai-status-open' : 'trai-status-night'}`}>
-          <span className="ist-clock-dot" />
-          <span>
-            {new Intl.DateTimeFormat('en-IN', {
-              timeZone: 'Asia/Kolkata',
-              hour: '2-digit',
-              minute: '2-digit',
-              second: '2-digit',
-              hour12: false,
-            }).format(istTime)}{' '}
-            IST
-          </span>
-          <span className="trai-tag">{isTraiOpen ? 'WINDOW OPEN' : 'NOCTURNAL HOLD'}</span>
-        </div>
+        <span className="header-badge-test">Test mode</span>
 
-        {/* Sync / Refresh Button */}
+        <span className="header-meta-time" title={`Current IST: ${istClockStr} IST`}>
+          Updated {updatedTimeStr}
+        </span>
+
         <button
           type="button"
-          className={`header-sync-btn ${isRefreshing ? 'sync-refreshing' : ''} ${refreshCompleted ? 'sync-completed' : ''}`}
+          className={`header-refresh-btn ${isRefreshing ? 'refreshing' : ''}`}
           onClick={handleManualRefresh}
           disabled={isRefreshing}
-          title="Force telemetry refresh [R]"
+          title="Refresh data (Hotkey: R)"
         >
-          <span className={`sync-icon ${isRefreshing ? 'spin' : ''}`}>↻</span>
-          <span>{isRefreshing ? 'SYNCING…' : refreshCompleted ? 'UPDATED' : 'SYNC'}</span>
-        </button>
-
-        {/* Keyboard Shortcuts Trigger */}
-        <button
-          type="button"
-          className="header-shortcut-btn"
-          onClick={() => setShowShortcuts(true)}
-          title="View Keyboard Shortcuts [?]"
-        >
-          ?
+          <RotateCw size={14} className={isRefreshing ? 'spin-icon' : ''} />
+          <span>{isRefreshing ? 'Refreshing…' : refreshCompleted ? 'Updated' : 'Refresh'}</span>
         </button>
       </div>
     </header>
