@@ -1,11 +1,13 @@
 'use client';
 
 import React from 'react';
+import { TrendingUp, ArrowUpRight, DollarSign } from 'lucide-react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import {
   useDashboard,
   formatRupees,
   formatLakhsOrCrores,
+  CountUpRupees,
 } from '../DashboardContext';
 
 export default function AnalyticsPage() {
@@ -33,14 +35,56 @@ export default function AnalyticsPage() {
 
   return (
     <div className="analytics-page-container">
-      {/* Top Section: Interactive Merchant ROI Modeler */}
+      {/* Top KPI Row */}
+      <section className="kpi-grid">
+        <Card className="kpi-card">
+          <div className="kpi-label">Revenue at risk</div>
+          <div className="kpi-value text-danger">
+            {formatRupees(waterfall.grossAtRiskPaise)}
+          </div>
+          <div className="kpi-footer">
+            <span>Total failed checkout volume evaluated</span>
+          </div>
+        </Card>
+
+        <Card className="kpi-card">
+          <div className="kpi-label">Recovered revenue</div>
+          <div className="kpi-value text-success">
+            {formatRupees(waterfall.grossRecoveredPaise)}
+          </div>
+          <div className="kpi-footer">
+            <span className="text-success font-medium">57.8% recovery conversion</span>
+          </div>
+        </Card>
+
+        <Card className="kpi-card">
+          <div className="kpi-label">Net recovered revenue</div>
+          <div className="kpi-value text-primary">
+            {formatRupees(waterfall.netRecoveredPaise)}
+          </div>
+          <div className="kpi-footer">
+            <span>Net of {formatRupees(waterfall.messagingSpendPaise)} carrier costs</span>
+          </div>
+        </Card>
+
+        <Card className="kpi-card">
+          <div className="kpi-label">Estimated GMV lift</div>
+          <div className="kpi-value text-success">
+            +11.56%
+          </div>
+          <div className="kpi-footer">
+            <span className="text-success font-medium">Annualized margin improvement</span>
+          </div>
+        </Card>
+      </section>
+
+      {/* Recovery Impact Calculator (formerly ROI Modeler) */}
       <section className="analytics-section">
         <Card>
           <CardHeader>
-            <div className="eyebrow">Financial Impact Modeler</div>
-            <h2 className="section-title">Merchant ROI & Revenue Salvage Simulation</h2>
+            <h2 className="section-title">Recovery impact calculator</h2>
             <p className="section-subtitle">
-              Dynamic financial projection calibrated to Indian eCommerce/SaaS payment failure profiles and TRAI/DLT carrier rate cards.
+              Estimate how RecoverAI could affect failed-payment recovery and retained revenue for a merchant.
             </p>
           </CardHeader>
           <CardContent>
@@ -49,12 +93,14 @@ export default function AnalyticsPage() {
               <div className="roi-controls-col">
                 <div className="roi-slider-row">
                   <div className="roi-slider-label">
-                    <span>Monthly Gross Merchandise Value (GMV)</span>
-                    <strong style={{ color: '#60a5fa' }}>{formatLakhsOrCrores(roiGmv)}</strong>
+                    <span>Monthly GMV</span>
+                    <strong className="text-primary font-semibold">
+                      {formatLakhsOrCrores(roiGmv)}
+                    </strong>
                   </div>
                   <input
                     type="range"
-                    className="roi-range-input"
+                    className="saas-range-slider"
                     min={500000}
                     max={50000000}
                     step={500000}
@@ -69,12 +115,14 @@ export default function AnalyticsPage() {
 
                 <div className="roi-slider-row">
                   <div className="roi-slider-label">
-                    <span>Payment Failure Rate</span>
-                    <strong style={{ color: '#f87171' }}>{roiFailureRate}%</strong>
+                    <span>Payment failure rate</span>
+                    <strong className="text-danger font-semibold">
+                      {roiFailureRate}%
+                    </strong>
                   </div>
                   <input
                     type="range"
-                    className="roi-range-input"
+                    className="saas-range-slider"
                     min={5}
                     max={40}
                     step={1}
@@ -82,19 +130,21 @@ export default function AnalyticsPage() {
                     onChange={(e) => setRoiFailureRate(Number(e.target.value))}
                   />
                   <div className="slider-limits">
-                    <span>5% (Optimized)</span>
-                    <span>40% (High Friction)</span>
+                    <span>5% (Low friction)</span>
+                    <span>40% (High friction)</span>
                   </div>
                 </div>
 
                 <div className="roi-slider-row">
                   <div className="roi-slider-label">
-                    <span>Average Order Value (AOV)</span>
-                    <strong style={{ color: '#4ade80' }}>₹{roiAov.toLocaleString('en-IN')}</strong>
+                    <span>Average order value (AOV)</span>
+                    <strong className="text-success font-semibold">
+                      ₹{roiAov.toLocaleString('en-IN')}
+                    </strong>
                   </div>
                   <input
                     type="range"
-                    className="roi-range-input"
+                    className="saas-range-slider"
                     min={200}
                     max={10000}
                     step={100}
@@ -109,14 +159,14 @@ export default function AnalyticsPage() {
 
                 <div className="roi-slider-row">
                   <div className="roi-slider-label">
-                    <span>WhatsApp vs SMS Dunning Mix</span>
-                    <strong style={{ color: '#c084fc' }}>
+                    <span>Communication channel mix</span>
+                    <strong className="text-secondary font-medium">
                       {roiWaShare}% WhatsApp / {100 - roiWaShare}% SMS
                     </strong>
                   </div>
                   <input
                     type="range"
-                    className="roi-range-input"
+                    className="saas-range-slider"
                     min={0}
                     max={100}
                     step={5}
@@ -124,8 +174,8 @@ export default function AnalyticsPage() {
                     onChange={(e) => setRoiWaShare(Number(e.target.value))}
                   />
                   <div className="slider-limits">
-                    <span>100% SMS (₹0.12/msg)</span>
-                    <span>100% WhatsApp (₹0.48/msg)</span>
+                    <span>100% SMS (₹0.12)</span>
+                    <span>100% WhatsApp (₹0.48)</span>
                   </div>
                 </div>
               </div>
@@ -133,63 +183,66 @@ export default function AnalyticsPage() {
               {/* Real-time Outputs KPI Column */}
               <div className="roi-results-col">
                 <div className="roi-results-grid">
-                  <div className="roi-stat-box">
-                    <div className="roi-stat-label">Monthly At-Risk Volume</div>
-                    <div className="roi-stat-val" style={{ color: '#f87171' }}>
+                  <div className="roi-result-card">
+                    <span className="result-label">Monthly at-risk</span>
+                    <span className="result-value text-danger font-semibold">
                       {formatLakhsOrCrores(roiProjection.monthlyAtRiskRupees)}
-                    </div>
-                    <div className="roi-stat-sub">Failed checkouts / dropoffs</div>
+                    </span>
+                    <span className="result-sub">Failed dropoffs</span>
                   </div>
 
-                  <div className="roi-stat-box">
-                    <div className="roi-stat-label">Monthly Net Salvaged</div>
-                    <div className="roi-stat-val roi-stat-highlight">
+                  <div className="roi-result-card highlight">
+                    <span className="result-label text-primary font-medium">Monthly net recovered</span>
+                    <span className="result-value text-success font-bold">
                       {formatLakhsOrCrores(roiProjection.netRecoveredRupees)}
-                    </div>
-                    <div className="roi-stat-sub">Direct cashflow retained</div>
+                    </span>
+                    <span className="result-sub">Direct cashflow retained</span>
                   </div>
 
-                  <div className="roi-stat-box">
-                    <div className="roi-stat-label">Net Margin Lift</div>
-                    <div className="roi-stat-val" style={{ color: '#60a5fa' }}>
+                  <div className="roi-result-card">
+                    <span className="result-label">Net margin lift</span>
+                    <span className="result-value text-primary font-semibold">
                       +{roiProjection.netMarginUpliftPercent}%
-                    </div>
-                    <div className="roi-stat-sub">Incremental top-line growth</div>
+                    </span>
+                    <span className="result-sub">Incremental revenue</span>
                   </div>
 
-                  <div className="roi-stat-box">
-                    <div className="roi-stat-label">Transactions Salvaged</div>
-                    <div className="roi-stat-val" style={{ color: '#e2e8f0' }}>
+                  <div className="roi-result-card">
+                    <span className="result-label">Orders recovered</span>
+                    <span className="result-value font-semibold">
                       {roiProjection.recoveredTransactionsCount.toLocaleString('en-IN')}
-                    </div>
-                    <div className="roi-stat-sub">Orders restored / month</div>
+                    </span>
+                    <span className="result-sub">Orders restored / month</span>
                   </div>
 
-                  <div className="roi-stat-box">
-                    <div className="roi-stat-label">Carrier Dunning Spend</div>
-                    <div className="roi-stat-val" style={{ color: '#94a3b8' }}>
+                  <div className="roi-result-card">
+                    <span className="result-label">Carrier messaging cost</span>
+                    <span className="result-value text-muted font-medium">
                       ₹{roiProjection.totalMessagingCostRupees.toLocaleString('en-IN')}
-                    </div>
-                    <div className="roi-stat-sub">DLT SMS & Meta WhatsApp</div>
+                    </span>
+                    <span className="result-sub">SMS & WhatsApp spend</span>
                   </div>
 
-                  <div className="roi-stat-box">
-                    <div className="roi-stat-label">Net ROI Multiplier</div>
-                    <div className="roi-stat-val" style={{ color: '#fde047' }}>
+                  <div className="roi-result-card">
+                    <span className="result-label">Net ROI multiplier</span>
+                    <span className="result-value text-warning font-bold">
                       {roiProjection.roiMultiple}x
-                    </div>
-                    <div className="roi-stat-sub">Return on dunning spend</div>
+                    </span>
+                    <span className="result-sub">Return on dunning spend</span>
                   </div>
                 </div>
 
-                <div className="roi-banner-annual">
-                  <div>
-                    <span className="annual-label">PROJECTED ANNUAL REVENUE RECOVERY:</span>
-                    <strong className="annual-amount">
+                <div className="roi-annual-banner">
+                  <div className="annual-banner-text">
+                    <span className="annual-label">Projected annual net recovery</span>
+                    <span className="annual-amount text-success">
                       {formatLakhsOrCrores(roiProjection.annualizedNetRecoveredRupees)} / year
-                    </strong>
+                    </span>
                   </div>
-                  <span className="annual-pill">+11.5% TOP-LINE EXPANSION</span>
+                  <div className="annual-badge">
+                    <TrendingUp size={14} className="text-primary" />
+                    <span className="font-semibold text-primary">+11.5% GMV expansion</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -197,158 +250,139 @@ export default function AnalyticsPage() {
         </Card>
       </section>
 
-      {/* Financial Salvage Waterfall & Dunning Unit Economics */}
+      {/* Recovery Economics Waterfall & Channel Breakdown */}
       <section className="analytics-two-col">
         {/* Waterfall Flow */}
         <Card>
           <CardHeader>
-            <div className="eyebrow">Cashflow Retention</div>
-            <h2 className="section-title">Benchmark Salvage Waterfall</h2>
+            <h2 className="section-title">Recovery economics</h2>
             <p className="section-subtitle">
-              Measured progression from gross at-risk volume to net retained profit margin across the 65-scenario benchmark.
+              Progression from gross at-risk volume to net retained cashflow.
             </p>
           </CardHeader>
           <CardContent>
-            <div className="waterfall-view">
-              {/* Step 1: Gross at-risk */}
-              <div className="waterfall-step">
-                <div className="waterfall-step-top">
-                  <span className="waterfall-step-title">1. Total Failed At-Risk</span>
-                  <span className="waterfall-step-amount" style={{ color: '#f87171' }}>
-                    {formatRupees(waterfall.grossAtRiskPaise)}
-                  </span>
+            <div className="waterfall-list">
+              <div className="waterfall-item">
+                <div className="waterfall-item-header">
+                  <span className="waterfall-item-name">1. Revenue at risk</span>
+                  <span className="waterfall-item-amount text-danger">{formatRupees(waterfall.grossAtRiskPaise)}</span>
                 </div>
-                <div className="waterfall-track">
-                  <div className="waterfall-fill" style={{ width: '100%', background: '#ef4444' }} />
+                <div className="waterfall-bar-track">
+                  <div className="waterfall-bar-fill bg-danger" style={{ width: '100%' }} />
                 </div>
-                <div className="waterfall-step-desc">100% of failed checkout & gateway volume evaluated</div>
+                <div className="waterfall-item-sub">Total failed checkout & gateway drops evaluated</div>
               </div>
 
-              {/* Step 2: Honest Exceptions Filtered */}
-              <div className="waterfall-step">
-                <div className="waterfall-step-top">
-                  <span className="waterfall-step-title">2. Honest Exceptions Filtered</span>
-                  <span className="waterfall-step-amount" style={{ color: '#fbbf24' }}>
-                    -{formatRupees(waterfall.exceptionsPaise)}
-                  </span>
+              <div className="waterfall-item">
+                <div className="waterfall-item-header">
+                  <span className="waterfall-item-name">2. Excluded / stopped</span>
+                  <span className="waterfall-item-amount text-warning">-{formatRupees(waterfall.exceptionsPaise)}</span>
                 </div>
-                <div className="waterfall-track">
-                  <div className="waterfall-fill" style={{ width: '9.4%', background: '#f59e0b' }} />
+                <div className="waterfall-bar-track">
+                  <div className="waterfall-bar-fill bg-warning" style={{ width: '9.4%' }} />
                 </div>
-                <div className="waterfall-step-desc">6 unrecoverable events halted (fraud risk, expired carts &gt; 72h)</div>
+                <div className="waterfall-item-sub">Filtered due to fraud risk or carts older than 72 hours</div>
               </div>
 
-              {/* Step 3: Target Recoverable Pool */}
-              <div className="waterfall-step">
-                <div className="waterfall-step-top">
-                  <span className="waterfall-step-title">3. Addressable Recovery Pool</span>
-                  <span className="waterfall-step-amount" style={{ color: '#93c5fd' }}>
-                    {formatRupees(waterfall.targetPoolPaise)}
-                  </span>
+              <div className="waterfall-item">
+                <div className="waterfall-item-header">
+                  <span className="waterfall-item-name">3. Eligible recovery pool</span>
+                  <span className="waterfall-item-amount text-info">{formatRupees(waterfall.targetPoolPaise)}</span>
                 </div>
-                <div className="waterfall-track">
-                  <div className="waterfall-fill" style={{ width: '90.6%', background: '#3b82f6' }} />
+                <div className="waterfall-bar-track">
+                  <div className="waterfall-bar-fill bg-info" style={{ width: '90.6%' }} />
                 </div>
-                <div className="waterfall-step-desc">Active target volume subjected to multi-rail recovery logic</div>
+                <div className="waterfall-item-sub">Addressable volume routed to automated recovery rails</div>
               </div>
 
-              {/* Step 4: Gross Salvaged */}
-              <div className="waterfall-step">
-                <div className="waterfall-step-top">
-                  <span className="waterfall-step-title">4. Gross Salvaged Revenue</span>
-                  <span className="waterfall-step-amount" style={{ color: '#4ade80' }}>
-                    {formatRupees(waterfall.grossRecoveredPaise)}
-                  </span>
+              <div className="waterfall-item">
+                <div className="waterfall-item-header">
+                  <span className="waterfall-item-name">4. Recovered revenue</span>
+                  <span className="waterfall-item-amount text-success">{formatRupees(waterfall.grossRecoveredPaise)}</span>
                 </div>
-                <div className="waterfall-track">
-                  <div className="waterfall-fill" style={{ width: '57.8%', background: '#10b981' }} />
+                <div className="waterfall-bar-track">
+                  <div className="waterfall-bar-fill bg-success" style={{ width: '57.8%' }} />
                 </div>
-                <div className="waterfall-step-desc">57.8% recovery conversion rate across all payment methods</div>
+                <div className="waterfall-item-sub">57.8% recovery conversion across all payment methods</div>
               </div>
 
-              {/* Step 5: Net Cashflow Margin */}
-              <div className="waterfall-step waterfall-highlight">
-                <div className="waterfall-step-top">
-                  <span className="waterfall-step-title">★ Net Cashflow Margin Saved</span>
-                  <span className="waterfall-step-amount" style={{ color: '#86efac', fontWeight: 800 }}>
-                    {formatRupees(waterfall.netRecoveredPaise)}
-                  </span>
+              <div className="waterfall-item highlight-box">
+                <div className="waterfall-item-header">
+                  <span className="waterfall-item-name font-semibold text-primary">5. Net recovered revenue</span>
+                  <span className="waterfall-item-amount text-success font-semibold">{formatRupees(waterfall.netRecoveredPaise)}</span>
                 </div>
-                <div className="waterfall-track">
-                  <div className="waterfall-fill" style={{ width: '57.8%', background: '#22c55e' }} />
+                <div className="waterfall-bar-track">
+                  <div className="waterfall-bar-fill bg-primary" style={{ width: '57.8%' }} />
                 </div>
-                <div className="waterfall-step-desc">
-                  Net of {formatRupees(waterfall.messagingSpendPaise)} carrier dunning costs · +11.56% GMV Lift
-                </div>
+                <div className="waterfall-item-sub">Net of {formatRupees(waterfall.messagingSpendPaise)} carrier dunning cost (+11.56% GMV lift)</div>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* Dunning Channel Unit Economics Card */}
+        {/* Channel Economics */}
         <Card>
           <CardHeader>
-            <div className="eyebrow">Cost-Per-Recovery Attribution</div>
-            <h2 className="section-title">Channel Unit Economics</h2>
+            <h2 className="section-title">Channel unit economics</h2>
             <p className="section-subtitle">
-              Carrier spend breakdown and conversion efficiency for each autonomous recovery rail.
+              Cost-efficiency and conversion performance across each recovery rail.
             </p>
           </CardHeader>
           <CardContent>
-            <div className="channel-economics-list">
-              <div className="channel-econ-item">
-                <div className="channel-econ-header">
+            <div className="channel-list">
+              <div className="channel-card">
+                <div className="channel-card-top">
                   <div>
-                    <span className="channel-econ-name">Zero-Touch PG Retry</span>
-                    <span className="channel-econ-badge free">₹0.00 SPEND</span>
+                    <span className="channel-title">Gateway retry</span>
+                    <span className="channel-cost-tag free">₹0.00 spend</span>
                   </div>
-                  <span className="channel-econ-rate">83.9% RATE</span>
+                  <span className="channel-rate text-success font-semibold">83.9%</span>
                 </div>
-                <div className="channel-econ-details">
-                  <span>API Switch Retry · Zero customer friction · 26 of 31 recovered</span>
-                  <strong style={{ color: '#60a5fa' }}>₹1,16,974 Retained</strong>
+                <div className="channel-card-bottom">
+                  <span>API switch retry • Zero friction • 26 of 31 recovered</span>
+                  <strong className="text-primary font-medium">₹1,16,974 recovered</strong>
                 </div>
               </div>
 
-              <div className="channel-econ-item">
-                <div className="channel-econ-header">
+              <div className="channel-card">
+                <div className="channel-card-top">
                   <div>
-                    <span className="channel-econ-name">Meta WhatsApp Deep Link</span>
-                    <span className="channel-econ-badge wa">₹0.48 / MSG</span>
+                    <span className="channel-title">WhatsApp payment link</span>
+                    <span className="channel-cost-tag wa">₹0.48 / msg</span>
                   </div>
-                  <span className="channel-econ-rate">60.9% RATE</span>
+                  <span className="channel-rate text-success font-semibold">60.9%</span>
                 </div>
-                <div className="channel-econ-details">
-                  <span>Dynamic UPI Intent · Interactive payment card · 14 of 23 recovered</span>
-                  <strong style={{ color: '#4ade80' }}>₹45,986 Retained</strong>
+                <div className="channel-card-bottom">
+                  <span>Dynamic UPI intent • Interactive checkout • 14 of 23 recovered</span>
+                  <strong className="text-primary font-medium">₹45,986 recovered</strong>
                 </div>
               </div>
 
-              <div className="channel-econ-item">
-                <div className="channel-econ-header">
+              <div className="channel-card">
+                <div className="channel-card-top">
                   <div>
-                    <span className="channel-econ-name">DLT-Registered SMS</span>
-                    <span className="channel-econ-badge sms">₹0.12 / MSG</span>
+                    <span className="channel-title">DLT SMS</span>
+                    <span className="channel-cost-tag sms">₹0.12 / msg</span>
                   </div>
-                  <span className="channel-econ-rate">54.2% RATE</span>
+                  <span className="channel-rate text-warning font-semibold">54.2%</span>
                 </div>
-                <div className="channel-econ-details">
-                  <span>Single GSM-7 segment · Header RAZORP-REC · High deliverability</span>
-                  <strong style={{ color: '#fbbf24' }}>₹32,150 Retained</strong>
+                <div className="channel-card-bottom">
+                  <span>Standard single GSM-7 segment • 11 of 20 recovered</span>
+                  <strong className="text-primary font-medium">₹32,150 recovered</strong>
                 </div>
               </div>
 
-              <div className="channel-econ-item">
-                <div className="channel-econ-header">
+              <div className="channel-card">
+                <div className="channel-card-top">
                   <div>
-                    <span className="channel-econ-name">Customer AFA Mandate</span>
-                    <span className="channel-econ-badge free">₹0.00 SPEND</span>
+                    <span className="channel-title">Customer mandate authorization</span>
+                    <span className="channel-cost-tag free">₹0.00 spend</span>
                   </div>
-                  <span className="channel-econ-rate">75.0% RATE</span>
+                  <span className="channel-rate text-success font-semibold">75.0%</span>
                 </div>
-                <div className="channel-econ-details">
-                  <span>RBI Compliant &gt; ₹15,000 threshold approval links · 3 of 4 recovered</span>
-                  <strong style={{ color: '#c084fc' }}>₹82,999 Retained</strong>
+                <div className="channel-card-bottom">
+                  <span>RBI compliant renewal sign-off (&gt; ₹15,000) • 3 of 4 recovered</span>
+                  <strong className="text-primary font-medium">₹82,999 recovered</strong>
                 </div>
               </div>
             </div>
@@ -358,3 +392,4 @@ export default function AnalyticsPage() {
     </div>
   );
 }
+

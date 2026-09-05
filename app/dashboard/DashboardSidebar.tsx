@@ -132,7 +132,7 @@ export function DashboardSidebar() {
               className="demo-btn-secondary"
               onClick={() => handleTrigger('compliance')}
               disabled={triggering !== null}
-              title="Test nocturnal TRAI compliance window interception (Hotkey: O)"
+              title="Test TRAI quiet-hours compliance hold (Hotkey: O)"
             >
               <Clock size={13} />
               <span>{triggering === 'compliance' ? 'Testing…' : 'Test compliance hold'}</span>

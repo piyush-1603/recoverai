@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { X, Copy, Check, ShieldCheck, Sparkles, Terminal } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import {
   useDashboard,
@@ -24,6 +25,11 @@ export function TransactionTraceDrawer() {
     }
   };
 
+  const formatAction = (str: string) => {
+    if (!str) return '—';
+    return str.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  };
+
   return (
     <AnimatePresence>
       {selectedLog && (
@@ -33,6 +39,7 @@ export function TransactionTraceDrawer() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
             onClick={() => setSelectedLog(null)}
           />
           <motion.aside
@@ -40,159 +47,175 @@ export function TransactionTraceDrawer() {
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 28, stiffness: 280 }}
+            transition={{ type: 'spring', damping: 30, stiffness: 320 }}
           >
+            {/* Header */}
             <div className="drawer-header">
-              <div>
-                <div className="drawer-title">
-                  TRANSACTION TRACE #{selectedLog.transactionId.slice(-8)}
+              <div className="drawer-title-group">
+                <div className="drawer-title-row">
+                  <h3 className="drawer-title">
+                    Transaction ••••{selectedLog.transactionId.slice(-8)}
+                  </h3>
+                  <Badge tone={resultTone(selectedLog.result)}>
+                    {resultLabel(selectedLog.result)}
+                  </Badge>
                 </div>
                 <div className="drawer-subtitle">
-                  EVENT ID: {selectedLog.eventId} · {formatTime(selectedLog.timestamp)}
+                  Event ID {selectedLog.eventId} • {formatTime(selectedLog.timestamp)}
                 </div>
               </div>
               <button
                 type="button"
-                className="drawer-close"
+                className="drawer-close-btn"
                 onClick={() => setSelectedLog(null)}
-                aria-label="Close transaction drawer"
+                aria-label="Close drawer"
               >
-                ×
+                <X size={18} />
               </button>
             </div>
 
-            {/* Visual Autonomous Stepper / Timeline */}
-            <div className="drawer-card">
-              <div className="drawer-card-title">
-                <span>Lifecycle Telemetry Stepper</span>
-                <span style={{ color: '#60a5fa' }}>4 STEPS EXECUTED</span>
-              </div>
-              <div className="timeline-stepper">
-                <div className="stepper-node stepper-node-amber">
-                  <div className="stepper-node-title">1. Initial Transaction Failure Logged</div>
-                  <div className="stepper-node-desc">
-                    Amount: {selectedLog.amountPaise ? formatRupees(selectedLog.amountPaise) : '₹499.00'} · Gateway/Cart event captured.
+            <div className="drawer-body">
+              {/* Summary Section */}
+              <div className="drawer-section">
+                <h4 className="drawer-section-heading">Transaction summary</h4>
+                <div className="drawer-data-grid">
+                  <div className="data-item">
+                    <span className="data-item-label">Amount</span>
+                    <span className="data-item-value font-semibold">
+                      {selectedLog.amountPaise ? formatRupees(selectedLog.amountPaise) : 'N/A'}
+                    </span>
+                  </div>
+                  <div className="data-item">
+                    <span className="data-item-label">Outcome</span>
+                    <span className="data-item-value font-medium">
+                      {resultLabel(selectedLog.result)}
+                    </span>
+                  </div>
+                  <div className="data-item">
+                    <span className="data-item-label">Channel</span>
+                    <span className="data-item-value">
+                      {formatAction(selectedLog.channel || 'Gateway retry')}
+                    </span>
+                  </div>
+                  <div className="data-item">
+                    <span className="data-item-label">Messaging cost</span>
+                    <span className="data-item-value">
+                      {selectedLog.messagingCostPaise
+                        ? formatRupees(selectedLog.messagingCostPaise)
+                        : '₹0.00 (Gateway)'}
+                    </span>
                   </div>
                 </div>
-                <div className="stepper-node">
-                  <div className="stepper-node-title">2. AI Advisory Reasoning Consulted</div>
-                  <div className="stepper-node-desc">
-                    {selectedLog.provider || 'Google Gemini'} recommended <strong>"{selectedLog.aiRecommendedAction || selectedLog.action}"</strong> ({selectedLog.providerLatencyMs || 342}ms latency).
-                  </div>
-                </div>
-                <div className="stepper-node">
-                  <div className="stepper-node-title">3. Deterministic Policy Verification</div>
-                  <div className="stepper-node-desc">
-                    Kernel evaluated Rule <strong>{selectedLog.ruleId || 'R_DEFAULT'}</strong> · TRAI compliance window verified.
-                  </div>
-                </div>
-                <div className="stepper-node stepper-node-green">
-                  <div className="stepper-node-title">4. Action Dispatched & State Persisted</div>
-                  <div className="stepper-node-desc">
-                    Channel: <strong>{(selectedLog.channel || 'gateway_link').toUpperCase()}</strong> · Result: <strong>{resultLabel(selectedLog.result)}</strong>.
-                  </div>
-                </div>
-              </div>
-            </div>
 
-            {/* Lifecycle & Policy Execution Summary */}
-            <div className="drawer-card">
-              <div className="drawer-card-title">
-                <span>Policy Execution Parameters</span>
-                <Badge tone={resultTone(selectedLog.result)}>{resultLabel(selectedLog.result)}</Badge>
-              </div>
-              <div className="trace-grid">
-                <div>
-                  <div className="trace-item-label">Amount Evaluated</div>
-                  <div className="trace-item-val">
-                    {selectedLog.amountPaise ? formatRupees(selectedLog.amountPaise) : 'N/A'}
-                  </div>
-                </div>
-                <div>
-                  <div className="trace-item-label">Dunning Channel</div>
-                  <div className="trace-item-val" style={{ textTransform: 'uppercase' }}>
-                    {selectedLog.channel || 'gateway_link'}
-                  </div>
-                </div>
-                <div>
-                  <div className="trace-item-label">Actor / Authority</div>
-                  <div className="trace-item-val">{selectedLog.actor}</div>
-                </div>
-                <div>
-                  <div className="trace-item-label">Policy Rule ID</div>
-                  <div className="trace-item-val">{selectedLog.ruleId || 'R_DEFAULT'}</div>
-                </div>
-                <div>
-                  <div className="trace-item-label">Razorpay Entity ID</div>
-                  <div className="trace-item-val" style={{ color: '#93c5fd' }}>
-                    {selectedLog.razorpayEntityId || 'N/A'}
-                  </div>
-                </div>
-                <div>
-                  <div className="trace-item-label">Messaging Cost</div>
-                  <div className="trace-item-val">
-                    {selectedLog.messagingCostPaise ? formatRupees(selectedLog.messagingCostPaise) : '₹0.00 (Free PG)'}
-                  </div>
+                <div className="drawer-reason-card">
+                  <span className="reason-card-label">Execution reason</span>
+                  <p className="reason-card-text">{selectedLog.reason}</p>
                 </div>
               </div>
-              <div style={{ marginTop: 12, fontSize: 11, color: '#c5cbcf', lineHeight: 1.5, background: '#121513', padding: 10, borderRadius: 3 }}>
-                <strong style={{ color: '#d97706', display: 'block', marginBottom: 2 }}>EXECUTION RATIONALE:</strong>
-                {selectedLog.reason}
-              </div>
-            </div>
 
-            {/* AI Reasoning Inspector */}
-            <div className="drawer-card">
-              <div className="drawer-card-title">
-                <span>AI Reasoning Inspector (Advisory Layer)</span>
-                <Badge tone="accent">{selectedLog.provider || 'Google Gemini'}</Badge>
+              {/* Policy Decision Details */}
+              <div className="drawer-section">
+                <div className="drawer-section-header">
+                  <ShieldCheck size={16} className="text-primary" />
+                  <h4 className="drawer-section-heading">Policy execution</h4>
+                </div>
+                <div className="drawer-data-grid">
+                  <div className="data-item">
+                    <span className="data-item-label">Final action</span>
+                    <span className="data-item-value font-semibold text-primary">
+                      {formatAction(selectedLog.action)}
+                    </span>
+                  </div>
+                  <div className="data-item">
+                    <span className="data-item-label">Policy rule</span>
+                    <span className="data-item-value mono">
+                      {selectedLog.ruleId || 'R_DEFAULT'}
+                    </span>
+                  </div>
+                  <div className="data-item">
+                    <span className="data-item-label">Decision authority</span>
+                    <span className="data-item-value">
+                      {formatAction(selectedLog.actor)}
+                    </span>
+                  </div>
+                  <div className="data-item">
+                    <span className="data-item-label">Gateway entity</span>
+                    <span className="data-item-value mono text-muted">
+                      {selectedLog.razorpayEntityId || 'N/A'}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div className="trace-grid">
-                <div>
-                  <div className="trace-item-label">Provider & Model</div>
-                  <div className="trace-item-val">{selectedLog.model || 'gemini-2.5-flash'}</div>
-                </div>
-                <div>
-                  <div className="trace-item-label">Inference Latency</div>
-                  <div className="trace-item-val">
-                    {selectedLog.providerLatencyMs ? `${selectedLog.providerLatencyMs}ms` : '342ms'}
-                  </div>
-                </div>
-                <div>
-                  <div className="trace-item-label">Advisory Recommendation</div>
-                  <div className="trace-item-val" style={{ color: '#fde047' }}>
-                    {selectedLog.aiRecommendedAction || selectedLog.action}
-                  </div>
-                </div>
-                <div>
-                  <div className="trace-item-label">Token Consumption</div>
-                  <div className="trace-item-val">
-                    {selectedLog.promptTokens ?? 340} prompt / {selectedLog.completionTokens ?? 78} comp
-                  </div>
-                </div>
-              </div>
-              {selectedLog.aiReasoning && (
-                <div style={{ marginTop: 12, fontSize: 11, color: '#86efac', background: '#0a100c', padding: 10, borderRadius: 3, border: '1px solid #1f3b28' }}>
-                  <strong style={{ color: '#4ade80', display: 'block', marginBottom: 2 }}>STATED MODEL REASONING:</strong>
-                  {selectedLog.aiReasoning}
-                </div>
-              )}
-            </div>
 
-            {/* Razorpay Webhook Replay cURL */}
-            <div className="drawer-card">
-              <div className="drawer-card-title">
-                <span>Webhook Simulator cURL</span>
-                <button
-                  type="button"
-                  className="trace-copy-btn"
-                  onClick={() => handleCopyCurl(generateReplayCurl(selectedLog))}
-                >
-                  {copiedCurl ? '✓ COPIED' : '📋 COPY cURL'}
-                </button>
+              {/* Advisory Details */}
+              <div className="drawer-section">
+                <div className="drawer-section-header">
+                  <Sparkles size={16} className="text-secondary" />
+                  <h4 className="drawer-section-heading">Advisory details</h4>
+                </div>
+                <div className="drawer-data-grid">
+                  <div className="data-item">
+                    <span className="data-item-label">Suggested action</span>
+                    <span className="data-item-value font-medium">
+                      {formatAction(selectedLog.aiRecommendedAction || selectedLog.action)}
+                    </span>
+                  </div>
+                  <div className="data-item">
+                    <span className="data-item-label">Advisory model</span>
+                    <span className="data-item-value">
+                      {selectedLog.model || 'Gemini 2.5'}
+                    </span>
+                  </div>
+                  <div className="data-item">
+                    <span className="data-item-label">Inference latency</span>
+                    <span className="data-item-value">
+                      {selectedLog.providerLatencyMs ? `${selectedLog.providerLatencyMs}ms` : '342ms'}
+                    </span>
+                  </div>
+                  <div className="data-item">
+                    <span className="data-item-label">Tokens</span>
+                    <span className="data-item-value mono text-muted">
+                      {selectedLog.promptTokens ?? 340} prompt / {selectedLog.completionTokens ?? 78} completion
+                    </span>
+                  </div>
+                </div>
+
+                {selectedLog.aiReasoning && (
+                  <div className="drawer-advisory-note">
+                    <span className="note-title">Recommendation context</span>
+                    <p className="note-body">{selectedLog.aiReasoning}</p>
+                  </div>
+                )}
               </div>
-              <div className="trace-curl-box">
-                {generateReplayCurl(selectedLog)}
+
+              {/* Webhook Simulation cURL */}
+              <div className="drawer-section">
+                <div className="drawer-curl-header">
+                  <div className="drawer-section-header">
+                    <Terminal size={15} className="text-secondary" />
+                    <h4 className="drawer-section-heading">Webhook simulator cURL</h4>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-curl-copy"
+                    onClick={() => handleCopyCurl(generateReplayCurl(selectedLog))}
+                  >
+                    {copiedCurl ? (
+                      <>
+                        <Check size={12} className="text-success" />
+                        <span>Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={12} />
+                        <span>Copy cURL</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                <pre className="drawer-curl-pre">
+                  <code>{generateReplayCurl(selectedLog)}</code>
+                </pre>
               </div>
             </div>
           </motion.aside>
@@ -201,3 +224,4 @@ export function TransactionTraceDrawer() {
     </AnimatePresence>
   );
 }
+

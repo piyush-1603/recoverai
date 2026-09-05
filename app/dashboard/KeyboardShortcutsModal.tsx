@@ -33,8 +33,8 @@ export function KeyboardShortcutsModal({ onClose }: { onClose: () => void }) {
       >
         <div className="shortcuts-header">
           <div>
-            <div className="shortcuts-title">KEYBOARD SHORTCUTS</div>
-            <div className="shortcuts-desc">Pro operator hotkeys for high-velocity hackathon demonstrations</div>
+            <div className="shortcuts-title">Keyboard shortcuts</div>
+            <div className="shortcuts-desc">Quick action hotkeys for dashboard navigation and demo testing</div>
           </div>
           <button type="button" className="drawer-close" onClick={onClose} aria-label="Close shortcuts modal">
             ×
